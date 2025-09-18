@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ロジックツリー作成ツール（ブラウザ保存版）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            overscroll-behavior: none;
+        }
+        .node {
+            cursor: grab;
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, opacity 0.2s, background-color 0.3s;
+            position: absolute;
+            padding: 8px; /* p-2 */
+            font-size: 14px;
+            font-weight: 500;
+            min-width: 100px;
+            max-width: 220px;
+            word-break: break-word;
+        }
+        .node:hover {
+            transform: scale(1.05);
+        }
+        .node.selected {
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.7);
+            z-index: 10;
+        }
+        .node.dragging {
+            opacity: 0.5;
+            cursor: grabbing;
+        }
+        .node.drag-over {
+            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.8);
+        }
+        .node span {
+            pointer-events: none;
+            user-select: none;
+        }
+        .connector {
+            stroke-width: 2px;
+            stroke: #9ca3af;
+            fill: none;
+            pointer-events: none;
+        }
+        .collapse-toggle {
+            cursor: pointer;
+            transition: background-color 0.2s, color 0.2s, transform 0.2s;
+            user-select: none;
+            z-index: 11;
+        }
+        .collapse-toggle:hover {
+            background-color: #f1f5f9;
+            transform: scale(1.1);
+        }
+        #tabs-container {
+            flex-wrap: wrap;
+        }
+        .tab {
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .tab-close-btn {
+            opacity: 0.5;
+            transition: opacity 0.2s;
+        }
+        .tab:hover .tab-close-btn {
+            opacity: 1;
+        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        kbd {
+            font-family: monospace;
+            padding: 0.1em 0.4em;
+            background-color: #f1f5f9;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+        }
+        .modal-enter { animation: fadeIn 0.3s ease; }
+        .modal-leave { animation: fadeOut 0.3s ease forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+    </style>
+</head>
+<body class="bg-slate-100 flex flex-col h-screen overflow-hidden">
+
+    <!-- ヘッダーとツールバー -->
+    <header class="bg-white shadow-md p-2 flex items-center justify-between z-20 flex-wrap">
+        <div class="flex items-center">
+            <h1 class="text-xl font-bold text-slate-800 ml-2">ロジックツリー</h1>
+            <div id="save-status" class="text-sm text-slate-500 ml-4 transition-opacity duration-500 opacity-0"></div>
+        </div>
+        <div class="flex items-center space-x-2 flex-wrap">
+            <button id="addNodeBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="選択中のノードに子ノードを追加">ノード追加</button>
+            <button id="removeNodeBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="選択中のノードを削除">ノード削除</button>
+            <div class="flex items-center space-x-2 p-1 bg-slate-100 rounded-lg">
+                <span class="text-sm font-medium text-slate-600 ml-2">色:</span>
+                <input type="color" id="colorPicker" value="#60a5fa" class="w-8 h-8 rounded-md border-none cursor-pointer" title="選択したノードの色を個別に変更">
+            </div>
+            <div class="flex items-center border-l pl-2 space-x-2">
+                 <button id="newTreeBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="新しいロジックツリーを作成">新規作成</button>
+                 <button id="saveBtn" class="bg-cyan-500 hover:bg-cyan-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="現在の状態をブラウザに保存">保存</button>
+                 <button id="exportBtn" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="現在のロジックツリーをファイルに保存">エクスポート</button>
+                <label for="importFile" class="bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg shadow cursor-pointer transition-transform transform hover:scale-105" title="ファイルからロジックツリーを読み込む">
+                    インポート
+                </label>
+                <input type="file" id="importFile" class="hidden" accept=".json">
+            </div>
+        </div>
+    </header>
+
+    <!-- タブコンテナ -->
+    <div id="tabs-container" class="bg-slate-200 p-1 flex items-center shadow-inner z-10"></div>
+
+    <!-- ロジックツリーキャンバス -->
+    <main id="canvas-container" class="flex-grow relative overflow-auto">
+        <div id="mindmap" class="absolute top-0 left-0">
+             <svg id="connector-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></svg>
+        </div>
+    </main>
+
+    <!-- 説明モーダル -->
+    <div id="help-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-8 max-w-2xl w-full transform transition-all">
+            <h2 class="text-2xl font-bold mb-4 text-slate-800">ロジックツリーの使い方</h2>
+            <ul class="space-y-3 text-slate-600 list-disc list-inside">
+                <li><strong class="text-green-500">ブラウザ保存:</strong> 作業内容は<strong class="text-green-600">お使いのブラウザに自動で保存</strong>されます。F5で更新しても消えません。</li>
+                <li><strong class="text-orange-500">注意:</strong> 別のPCやブラウザではデータは共有されません。タブを閉じるとデータが消える場合があります。キャッシュを消去するとデータが消えることがあります。</li>
+                <li><strong class="text-indigo-500">タブ機能:</strong> 「新規作成」で新しいタブを追加し、複数のツリーを管理できます（最大10個）。</li>
+                <li><strong class="text-blue-500">連結の変更:</strong> ノードをドラッグして、別のノードの上にドロップすると、親子関係を変更できます。</li>
+            </ul>
+            <div class="mt-8 text-right">
+                <button id="close-help-modal-btn" class="bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 px-6 rounded-lg shadow transition-transform transform hover:scale-105">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- カスタムモーダル -->
+    <div id="custom-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
+            <p id="modal-message" class="text-slate-700 mb-4"></p>
+            <div id="modal-buttons" class="flex justify-end space-x-2">
+                <button id="modal-confirm-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg">OK</button>
+                <button id="modal-cancel-btn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-semibold py-2 px-4 rounded-lg">キャンセル</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="measure-node" class="absolute -top-full p-2" style="font-size: 14px; max-width: 220px; font-weight: 500; visibility: hidden; word-break: break-word; overflow-wrap: break-word; pointer-events: none;"></div>
+
+    <script>
+        const mindmapContainer = document.getElementById('mindmap');
+        const connectorCanvas = document.getElementById('connector-canvas');
+        const addNodeBtn = document.getElementById('addNodeBtn');
+        const removeNodeBtn = document.getElementById('removeNodeBtn');
+        const colorPicker = document.getElementById('colorPicker');
+        const exportBtn = document.getElementById('exportBtn');
+        const importFile = document.getElementById('importFile');
+        const newTreeBtn = document.getElementById('newTreeBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        const tabsContainer = document.getElementById('tabs-container');
+        const helpModal = document.getElementById('help-modal');
+        const closeHelpModalBtn = document.getElementById('close-help-modal-btn');
+        const measureNode = document.getElementById('measure-node');
+        
+        const customModal = document.getElementById('custom-modal');
+        const modalMessage = document.getElementById('modal-message');
+        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
+        const modalCancelBtn = document.getElementById('modal-cancel-btn');
+        const saveStatus = document.getElementById('save-status');
+
+        let trees = [];
+        let activeTreeId = null;
+        let selectedNodeId = null;
+        let draggedNodeId = null;
+        let modalConfirmCallback = null;
+        let isEditing = false;
+        let saveStatusTimeoutId = null;
+
+        const NODE_HEIGHT_MIN = 40, LEVEL_GAP = 150, SIBLING_GAP = 20;
+        const COLOR_PALETTE = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#6366f1', '#a855f7', '#d946ef', '#ec4899'];
+        const LOCAL_STORAGE_KEY = 'logicTreesData_v3';
+        const WINDOW_NAME_PREFIX = 'logicTreeData=';
+
+        function showModal(message, type = 'alert', onConfirm = null) {
+            modalMessage.textContent = message;
+            modalConfirmCallback = onConfirm;
+            modalConfirmBtn.textContent = (type === 'confirm') ? 'OK' : '閉じる';
+            modalCancelBtn.style.display = (type === 'confirm') ? 'inline-block' : 'none';
+            customModal.style.display = 'flex';
+            customModal.classList.add('modal-enter');
+            customModal.classList.remove('modal-leave');
+        }
+
+        function hideModal() {
+            customModal.classList.add('modal-leave');
+            customModal.classList.remove('modal-enter');
+            setTimeout(() => { customModal.style.display = 'none'; }, 300);
+        }
+        
+        modalConfirmBtn.addEventListener('click', () => { if (modalConfirmCallback) modalConfirmCallback(); hideModal(); });
+        modalCancelBtn.addEventListener('click', hideModal);
+
+        function initialize() {
+            loadFromStorage();
+            if (!localStorage.getItem('visitedLogicTree_v3')) {
+                helpModal.style.display = 'flex';
+                localStorage.setItem('visitedLogicTree_v3', 'true');
+            }
+            renderAll();
+        }
+        
+        function loadFromStorage() {
+            let storedData = null;
+            let loadedFrom = '';
+
+            try {
+                // 1. Try localStorage first
+                storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
+                if (storedData) loadedFrom = 'localStorage';
+
+                // 2. If localStorage is empty, try window.name
+                if (!storedData && window.name.startsWith(WINDOW_NAME_PREFIX)) {
+                    storedData = window.name.substring(WINDOW_NAME_PREFIX.length);
+                    if(storedData) loadedFrom = 'window.name';
+                }
+
+                if (storedData) {
+                    const data = JSON.parse(storedData);
+                    if (data && Array.isArray(data.trees) && data.hasOwnProperty('activeTreeId')) {
+                        trees = data.trees;
+                        activeTreeId = data.activeTreeId;
+                        
+                        if (!trees.some(t => t.id === activeTreeId)) {
+                            activeTreeId = trees.length > 0 ? trees[0].id : null;
+                        }
+                        
+                        if (trees.length === 0) {
+                           addNewTree(false);
+                        }
+                        console.log(`Data loaded from ${loadedFrom}`);
+                        return; // Exit function after successful load
+                    }
+                }
+                
+                // If no valid data is found anywhere, start fresh.
+                addNewTree(false);
+
+            } catch (error) {
+                console.error("Failed to load data:", error);
+                localStorage.removeItem(LOCAL_STORAGE_KEY);
+                window.name = '';
+                trees = [];
+                activeTreeId = null;
+                addNewTree(false);
+                showModal('データの読み込みに失敗しました。新しいツリーを開始します。');
+            }
+        }
+
+        function saveToStorage(manual = false) {
+            let savedTo = '';
+            try {
+                const dataString = JSON.stringify({ trees, activeTreeId });
+
+                // 1. Try to save to localStorage
+                try {
+                    localStorage.setItem(LOCAL_STORAGE_KEY, dataString);
+                    savedTo = 'ブラウザ';
+                } catch (e) {
+                    console.warn("Could not save to localStorage, falling back to window.name.", e);
+                    // 2. Fallback to window.name
+                    window.name = WINDOW_NAME_PREFIX + dataString;
+                    savedTo = 'タブ';
+                }
+                showSaveStatus(manual ? `${savedTo}に保存しました` : '自動保存済み');
+            } catch (error) {
+                console.error("Failed to save data:", error);
+                showSaveStatus('保存エラー', true);
+            }
+        }
+        
+        function showSaveStatus(message, isError = false) {
+             if (saveStatusTimeoutId) clearTimeout(saveStatusTimeoutId);
+             saveStatus.textContent = message;
+             saveStatus.className = `text-sm ml-4 transition-opacity duration-500 ${isError ? 'text-red-500' : 'text-slate-500'}`;
+             saveStatus.classList.remove('opacity-0');
+             if (!isError) {
+                 saveStatusTimeoutId = setTimeout(() => saveStatus.classList.add('opacity-0'), 2000);
+             }
+        }
+        
+        function getCurrentTree() { return trees.find(t => t.id === activeTreeId); }
+        function getNodes() { const tree = getCurrentTree(); return tree ? tree.nodes : []; }
+        function getRootNode() { const nodes = getNodes(); return nodes ? nodes.find(n => n.parentId === null) : null; }
+
+        function updateSubtreeColor(startNodeId, color) {
+            const nodes = getNodes();
+            if(!nodes) return;
+            const queue = [startNodeId];
+            while (queue.length > 0) {
+                const currentId = queue.shift();
+                const currentNode = nodes.find(n => n.id === currentId);
+                if (currentNode) currentNode.color = color;
+                const children = nodes.filter(n => n.parentId === currentId);
+                queue.push(...children.map(c => c.id));
+            }
+        }
+
+        function updateAllNodeColors() {
+            const root = getRootNode();
+            if (!root) return;
+            const nodes = getNodes();
+            const firstLevelChildren = nodes.filter(n => n.parentId === root.id);
+            firstLevelChildren.forEach((child, index) => {
+                const color = COLOR_PALETTE[index % COLOR_PALETTE.length];
+                updateSubtreeColor(child.id, color);
+            });
+        }
+        
+        function getVisibleNodes() {
+            const nodes = getNodes();
+            if (!nodes || nodes.length === 0) return [];
+            const collapsedRootIds = new Set(nodes.filter(n => n.isCollapsed).map(n => n.id));
+            if (collapsedRootIds.size === 0) return nodes;
+            const visible = [];
+            const nodeMap = new Map(nodes.map(node => [node.id, node]));
+            for (const node of nodes) {
+                let isVisible = true, current = node;
+                while (current.parentId) {
+                    const parent = nodeMap.get(current.parentId);
+                    if (!parent || collapsedRootIds.has(parent.id)) { isVisible = false; break; }
+                    current = parent;
+                }
+                if (isVisible) visible.push(node);
+            }
+            return visible;
+        }
+
+        function layoutLogicTree() {
+            const nodes = getNodes();
+            if (!nodes || nodes.length === 0) return;
+            const visibleNodes = getVisibleNodes();
+            if (visibleNodes.length === 0 && nodes.length > 0) {
+                 const root = getRootNode(); if(root) visibleNodes.push(root);
+            }
+            if (visibleNodes.length === 0) return;
+            
+            visibleNodes.forEach(node => {
+                measureNode.textContent = node.text || ' ';
+                node.width = measureNode.offsetWidth;
+                node.height = measureNode.offsetHeight;
+            });
+
+            const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+            const childrenMap = new Map();
+            visibleNodes.forEach(node => {
+                const parentId = node.parentId && visibleNodeIds.has(node.parentId) ? node.parentId : 'root';
+                if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
+                childrenMap.get(parentId).push(node.id);
+            });
+            const nodeMap = new Map(visibleNodes.map(n => [n.id, n]));
+            const subtreeHeight = new Map();
+
+            function calculateHeight(nodeId) {
+                if (subtreeHeight.has(nodeId)) return subtreeHeight.get(nodeId);
+                const children = childrenMap.get(nodeId) || [];
+                const node = nodeMap.get(nodeId);
+                if (!node) return 0;
+                if (children.length === 0) { 
+                    const height = Math.max(node.height, NODE_HEIGHT_MIN);
+                    subtreeHeight.set(nodeId, height); return height; 
+                }
+                let totalHeight = children.reduce((sum, childId) => sum + calculateHeight(childId), 0) + (children.length - 1) * SIBLING_GAP;
+                subtreeHeight.set(nodeId, totalHeight);
+                return totalHeight;
+            }
+            function positionNodes(nodeId, level, startY) {
+                const node = nodeMap.get(nodeId); if (!node) return;
+                const children = childrenMap.get(nodeId) || [];
+                node.x = level * LEVEL_GAP + 50;
+                const myHeight = subtreeHeight.get(nodeId) || Math.max(node.height, NODE_HEIGHT_MIN);
+                node.y = startY + (myHeight / 2) - (Math.max(node.height, NODE_HEIGHT_MIN) / 2);
+                let currentY = startY;
+                children.forEach(childId => { positionNodes(childId, level + 1, currentY); currentY += (subtreeHeight.get(childId) || 0) + SIBLING_GAP; });
+            }
+            const roots = childrenMap.get('root') || [];
+            if (roots.length === 0) return;
+            roots.forEach(calculateHeight);
+            let currentYOffset = 50;
+            roots.forEach(rootId => { positionNodes(rootId, 0, currentYOffset); currentYOffset += (subtreeHeight.get(rootId) || 0) + SIBLING_GAP * 2; });
+        }
+
+        function renderAll(shouldSave = true) {
+            renderTabs();
+            renderCanvas();
+            if(shouldSave) saveToStorage();
+        }
+
+        function renderTabs() {
+            tabsContainer.innerHTML = '';
+            trees.forEach(tree => {
+                const tab = document.createElement('div');
+                tab.className = `tab flex items-center p-2 rounded-t-lg cursor-pointer ${tree.id === activeTreeId ? 'bg-slate-100 font-semibold text-blue-600' : 'bg-slate-300 text-slate-600 hover:bg-slate-100'}`;
+                tab.addEventListener('click', () => switchTab(tree.id));
+                const tabName = document.createElement('span');
+                tabName.textContent = tree.name;
+                tab.appendChild(tabName);
+                if (trees.length > 1) {
+                    const closeBtn = document.createElement('button');
+                    closeBtn.innerHTML = '&times;';
+                    closeBtn.className = 'tab-close-btn ml-2 font-bold leading-none p-1 rounded-full hover:bg-red-200';
+                    closeBtn.title = 'このツリーを削除';
+                    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeTree(tree.id); });
+                    tab.appendChild(closeBtn);
+                }
+                tabsContainer.appendChild(tab);
+            });
+        }
+        
+        function renderCanvas() {
+            layoutLogicTree();
+            mindmapContainer.innerHTML = '';
+            mindmapContainer.appendChild(connectorCanvas);
+            connectorCanvas.innerHTML = '';
+            const visibleNodes = getVisibleNodes();
+            const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
+            let maxX = 0, maxY = 0;
+            visibleNodes.forEach(node => {
+                const nodeEl = document.createElement('div');
+                Object.assign(nodeEl, { id: `node-${node.id}`, className: 'node rounded-xl shadow-lg text-white flex items-center justify-center text-center', draggable: true });
+                Object.assign(nodeEl.style, { backgroundColor: node.color, left: `${node.x}px`, top: `${node.y}px`, height: `${Math.max(node.height, NODE_HEIGHT_MIN)}px` });
+                const textEl = document.createElement('span');
+                textEl.textContent = node.text; nodeEl.appendChild(textEl);
+                if (node.id === selectedNodeId) nodeEl.classList.add('selected');
+                const hasChildren = getNodes().some(child => child.parentId === node.id);
+                if (hasChildren) {
+                    const toggleBtn = document.createElement('button');
+                    Object.assign(toggleBtn, { className: 'collapse-toggle absolute -bottom-3 w-6 h-6 bg-white border-2 border-slate-400 rounded-full flex items-center justify-center text-slate-600 font-bold text-lg leading-none', textContent: node.isCollapsed ? '+' : '−', title: node.isCollapsed ? '展開' : '折りたたむ' });
+                    toggleBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleCollapse(node.id); });
+                    nodeEl.appendChild(toggleBtn);
+                }
+                ['click', 'dblclick', 'dragstart', 'dragend', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+                    const handler = { click: (e) => { e.stopPropagation(); selectNode(node.id); }, dblclick: onDoubleClick, dragstart: handleDragStart, dragend: handleDragEnd, dragover: handleDragOver, dragleave: handleDragLeave, drop: handleDrop }[evt];
+                    nodeEl.addEventListener(evt, handler);
+                });
+                mindmapContainer.appendChild(nodeEl);
+                if (node.parentId && visibleNodeIds.has(node.parentId)) { const parentNode = getNodes().find(p => p.id === node.parentId); if (parentNode) drawConnector(parentNode, node); }
+                maxX = Math.max(maxX, node.x + nodeEl.offsetWidth); maxY = Math.max(maxY, node.y + nodeEl.offsetHeight);
+            });
+            const totalSize = { width: `${maxX + 200}px`, height: `${maxY + 200}px` };
+            Object.assign(mindmapContainer.style, totalSize); Object.assign(connectorCanvas.style, totalSize);
+        }
+
+        function drawConnector(parent, child) {
+            const parentEl = document.getElementById(`node-${parent.id}`), childEl = document.getElementById(`node-${child.id}`);
+            if (!parentEl || !childEl) return;
+            const p = { x: parent.x + parentEl.offsetWidth, y: parent.y + parentEl.offsetHeight / 2 };
+            const c = { x: child.x, y: child.y + childEl.offsetHeight / 2 };
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            path.setAttribute('d', `M ${p.x} ${p.y} H ${p.x + (c.x - p.x) / 2} V ${c.y} H ${c.x}`);
+            path.setAttribute('class', 'connector');
+            connectorCanvas.appendChild(path);
+        }
+
+        function switchTab(treeId) { if (treeId === activeTreeId) return; activeTreeId = treeId; selectedNodeId = null; renderAll(true); }
+
+        function addNewTree(shouldSave = true) {
+            if (trees.length >= 10) { showModal('ツリーは最大10個まで作成できます。'); return; }
+            const nextTreeId = trees.length > 0 ? Math.max(0, ...trees.map(t => t.id)) + 1 : 1;
+            const newId = nextTreeId;
+            const newTree = { id: newId, name: `ツリー ${newId}`, nodes: [], nextNodeId: 1 };
+            const rootNode = { id: newTree.nextNodeId++, text: '中心テーマ', x: 0, y: 0, parentId: null, color: '#3b82f6', isCollapsed: false };
+            newTree.nodes.push(rootNode);
+            trees.push(newTree);
+            activeTreeId = newId;
+            selectedNodeId = rootNode.id;
+            updateAllNodeColors();
+            renderAll(shouldSave);
+        }
+
+        function removeTree(treeId) {
+            showModal('このツリーを本当に削除しますか？この操作は元に戻せません。', 'confirm', () => {
+                trees = trees.filter(t => t.id !== treeId);
+                if (activeTreeId === treeId) { activeTreeId = trees.length > 0 ? trees[0].id : null; }
+                if (trees.length === 0) { addNewTree(); }
+                else { renderAll(true); }
+            });
+        }
+        
+        function addNode() {
+            const tree = getCurrentTree(); if (!tree) return;
+            if (selectedNodeId === null && tree.nodes.length > 0) { showModal('親となるノードを選択してください。'); return; }
+            const parentNode = tree.nodes.find(n => n.id === selectedNodeId);
+            const newNode = { id: tree.nextNodeId++, text: '新しいノード', x: 0, y: 0, parentId: parentNode ? parentNode.id : null, color: '#ffffff', isCollapsed: false };
+            tree.nodes.push(newNode);
+            if (parentNode && parentNode.isCollapsed) parentNode.isCollapsed = false;
+            updateAllNodeColors(); selectNode(newNode.id);
+        }
+
+        function addSiblingNode() {
+            const tree = getCurrentTree(); if (!tree) return;
+            if (selectedNodeId === null) return;
+            const selectedNode = tree.nodes.find(n => n.id === selectedNodeId);
+            if (!selectedNode || selectedNode.parentId === null) return;
+            const parentNode = tree.nodes.find(n => n.id === selectedNode.parentId);
+            const newNode = { id: tree.nextNodeId++, text: '新しいノード', x: 0, y: 0, parentId: selectedNode.parentId, color: '#ffffff', isCollapsed: false };
+            tree.nodes.push(newNode);
+            if (parentNode && parentNode.isCollapsed) parentNode.isCollapsed = false;
+            updateAllNodeColors(); selectNode(newNode.id);
+        }
+        
+        function reparentNode(childId, newParentId) {
+            const nodes = getNodes(); if (!nodes) return;
+            if (childId === newParentId) return;
+            const childNode = nodes.find(n => n.id === childId);
+            let current = nodes.find(n => n.id === newParentId);
+            while(current) { if (current.parentId === childId) return; current = nodes.find(n => n.id === current.parentId); }
+            if (childNode) { childNode.parentId = newParentId; updateAllNodeColors(); renderAll(true); }
+        }
+
+        function toggleCollapse(nodeId) { const node = getNodes().find(n => n.id === nodeId); if (node) { node.isCollapsed = !node.isCollapsed; renderAll(true); } }
+        
+        function performRemoveNode() {
+            const tree = getCurrentTree(); if (!tree) return;
+            let idsToRemove = [selectedNodeId]; let queue = [selectedNodeId];
+            while(queue.length > 0) { const children = tree.nodes.filter(n => n.parentId === queue.shift()); idsToRemove.push(...children.map(c => c.id)); queue.push(...children.map(c => c.id)); }
+            const parentId = tree.nodes.find(n => n.id === selectedNodeId)?.parentId;
+            tree.nodes = tree.nodes.filter(n => !idsToRemove.includes(n.id));
+            updateAllNodeColors(); selectNode(parentId || (tree.nodes.length > 0 ? tree.nodes[0].id : null));
+        }
+
+        function removeNode() {
+            if (selectedNodeId === null) return;
+            if (getNodes().find(n=>n.id === selectedNodeId)?.parentId === null && getNodes().length > 1) { showModal('ルートノードを削除する前に、すべての子ノードを削除してください。'); return; }
+            const hasChildren = getNodes().some(n => n.parentId === selectedNodeId);
+            if (hasChildren) { showModal('このノードには子ノードがあります。一緒に削除されますが、よろしいですか？', 'confirm', performRemoveNode); } else { performRemoveNode(); }
+        }
+
+        function selectNode(id) { 
+            if (isEditing) return;
+            selectedNodeId = id; 
+            const node = getNodes().find(n => n.id === id); 
+            if (node) colorPicker.value = node.color; 
+            renderAll(true); 
+        }
+
+        function changeNodeColor(color) {
+            if (selectedNodeId === null) return;
+            const nodes = getNodes();
+            const node = nodes.find(n => n.id === selectedNodeId);
+            if (node) {
+                const isRootChild = nodes.find(n => n.id === node.parentId)?.parentId === null;
+                if(node.parentId === null || isRootChild) { updateSubtreeColor(node.id, color); } else { node.color = color; }
+                renderAll(true);
+            }
+        }
+
+        function onDoubleClick(e) {
+            e.preventDefault();
+            isEditing = true;
+            const nodeEl = e.target.closest('.node'); if(!nodeEl) { isEditing = false; return; }
+            const nodeId = parseInt(nodeEl.id.replace('node-', ''));
+            const nodeData = getNodes().find(n => n.id === nodeId);
+            const textSpan = nodeEl.querySelector('span');
+            if (textSpan) textSpan.style.display = 'none';
+
+            const input = document.createElement('textarea');
+            input.value = nodeData.text;
+            input.className = 'absolute inset-0 w-full h-full p-2 bg-white bg-opacity-80 text-black rounded-lg resize-none z-20';
+            nodeEl.appendChild(input); input.focus(); input.select();
+
+            const onBlur = () => {
+                nodeData.text = input.value.trim() === '' ? '無題' : input.value;
+                if (nodeData.parentId === null) {
+                    const tree = getCurrentTree();
+                    tree.name = nodeData.text.substring(0, 20);
+                }
+                input.remove();
+                isEditing = false;
+                renderAll(true); 
+            };
+            input.addEventListener('blur', onBlur);
+            input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); input.blur(); } });
+        }
+        
+        function handleDragStart(e) { draggedNodeId = parseInt(e.target.id.replace('node-', '')); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => e.target.classList.add('dragging'), 0); }
+        function handleDragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); draggedNodeId = null; }
+        function handleDragOver(e) { e.preventDefault(); const targetEl = e.target.closest('.node'); if (targetEl && parseInt(targetEl.id.replace('node-','')) !== draggedNodeId) { e.dataTransfer.dropEffect = 'move'; targetEl.classList.add('drag-over'); } }
+        function handleDragLeave(e) { e.target.closest('.node')?.classList.remove('drag-over'); }
+        function handleDrop(e) { e.preventDefault(); const targetEl = e.target.closest('.node'); targetEl?.classList.remove('drag-over'); if (!targetEl || draggedNodeId === null) return; const targetNodeId = parseInt(targetEl.id.replace('node-', '')); reparentNode(draggedNodeId, targetNodeId); }
+
+        function exportData() {
+            const tree = getCurrentTree(); if (!tree) return;
+            const data = { nodes: tree.nodes, nextNodeId: tree.nextNodeId };
+            const dataStr = JSON.stringify(data, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = `${tree.name.replace(/\s/g, '_')}.json`; a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importData(e) {
+            const file = e.target.files[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (Array.isArray(importedData.nodes) && importedData.nodes.every(n => 'id' in n && 'text' in n) && 'nextNodeId' in importedData) {
+                        showModal('現在のタブにインポートしますか？この操作は元に戻せません。', 'confirm', () => {
+                            const tree = getCurrentTree();
+                            tree.nodes = importedData.nodes;
+                            tree.nextNodeId = importedData.nextNodeId;
+                            tree.nodes.forEach(n => { if (n.isCollapsed === undefined) n.isCollapsed = false; });
+                            selectedNodeId = tree.nodes.length > 0 ? getRootNode()?.id : null;
+                            updateAllNodeColors(); 
+                            renderAll(true);
+                        });
+                    } else { showModal('無効なファイル形式です。'); }
+                } catch (error) { showModal('ファイルの読み込み中にエラーが発生しました。'); }
+            };
+            reader.readAsText(file); e.target.value = ''; 
+        }
+
+        addNodeBtn.addEventListener('click', addNode);
+        removeNodeBtn.addEventListener('click', removeNode);
+        newTreeBtn.addEventListener('click', () => addNewTree(true));
+        saveBtn.addEventListener('click', () => saveToStorage(true));
+        colorPicker.addEventListener('input', (e) => changeNodeColor(e.target.value));
+        exportBtn.addEventListener('click', exportData);
+        importFile.addEventListener('change', importData);
+        document.getElementById('canvas-container').addEventListener('click', (e) => { if (e.target.id === 'canvas-container' || e.target.id === 'mindmap') { selectNode(null); } });
+        closeHelpModalBtn.addEventListener('click', () => helpModal.style.display = 'none');
+        document.addEventListener('keydown', (e) => { if (isEditing || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return; switch (e.key) { case 'Tab': e.preventDefault(); if (selectedNodeId !== null) addNode(); break; case 'Enter': e.preventDefault(); if (selectedNodeId !== null) addSiblingNode(); break; } });
+        
+        // Save before leaving the page
+        window.addEventListener('beforeunload', () => saveToStorage(false));
+
+        initialize();
+    </script>
+</body>
+</html>
+
