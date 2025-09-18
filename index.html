@@ -1,647 +1,1011 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ロジックツリー作成ツール（ブラウザ保存版）</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', 'Noto Sans JP', sans-serif;
-            overscroll-behavior: none;
-        }
-        .node {
-            cursor: grab;
-            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, opacity 0.2s, background-color 0.3s;
-            position: absolute;
-            padding: 8px; /* p-2 */
-            font-size: 14px;
-            font-weight: 500;
-            min-width: 100px;
-            max-width: 220px;
-            word-break: break-word;
-        }
-        .node:hover {
-            transform: scale(1.05);
-        }
-        .node.selected {
-            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.7);
-            z-index: 10;
-        }
-        .node.dragging {
-            opacity: 0.5;
-            cursor: grabbing;
-        }
-        .node.drag-over {
-            box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.8);
-        }
-        .node span {
-            pointer-events: none;
-            user-select: none;
-        }
-        .connector {
-            stroke-width: 2px;
-            stroke: #9ca3af;
-            fill: none;
-            pointer-events: none;
-        }
-        .collapse-toggle {
-            cursor: pointer;
-            transition: background-color 0.2s, color 0.2s, transform 0.2s;
-            user-select: none;
-            z-index: 11;
-        }
-        .collapse-toggle:hover {
-            background-color: #f1f5f9;
-            transform: scale(1.1);
-        }
-        #tabs-container {
-            flex-wrap: wrap;
-        }
-        .tab {
-            transition: background-color 0.2s, color 0.2s;
-        }
-        .tab-close-btn {
-            opacity: 0.5;
-            transition: opacity 0.2s;
-        }
-        .tab:hover .tab-close-btn {
-            opacity: 1;
-        }
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f5f9; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        kbd {
-            font-family: monospace;
-            padding: 0.1em 0.4em;
-            background-color: #f1f5f9;
-            border-radius: 4px;
-            border: 1px solid #e2e8f0;
-        }
-        .modal-enter { animation: fadeIn 0.3s ease; }
-        .modal-leave { animation: fadeOut 0.3s ease forwards; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-    </style>
-</head>
-<body class="bg-slate-100 flex flex-col h-screen overflow-hidden">
+/**
+* @OnlyCurrentDoc
+* このスクリプトは、指定されたデザインテンプレートに基づきGoogleスライドを自動生成します。
+* Version: 17.0 (Generalized Version)
+* Prompt Design: まじん式プロンプト
+* Author: Googleスライド自動生成マスター
+* Description: 指定されたslideData配列とカスタムメニューの設定に基づき、Googleのデザイン原則に準拠したスライドを生成します。
+*/
 
-    <!-- ヘッダーとツールバー -->
-    <header class="bg-white shadow-md p-2 flex items-center justify-between z-20 flex-wrap">
-        <div class="flex items-center">
-            <h1 class="text-xl font-bold text-slate-800 ml-2">ロジックツリー</h1>
-            <div id="save-status" class="text-sm text-slate-500 ml-4 transition-opacity duration-500 opacity-0"></div>
-        </div>
-        <div class="flex items-center space-x-2 flex-wrap">
-            <button id="addNodeBtn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="選択中のノードに子ノードを追加">ノード追加</button>
-            <button id="removeNodeBtn" class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="選択中のノードを削除">ノード削除</button>
-            <div class="flex items-center space-x-2 p-1 bg-slate-100 rounded-lg">
-                <span class="text-sm font-medium text-slate-600 ml-2">色:</span>
-                <input type="color" id="colorPicker" value="#60a5fa" class="w-8 h-8 rounded-md border-none cursor-pointer" title="選択したノードの色を個別に変更">
-            </div>
-            <div class="flex items-center border-l pl-2 space-x-2">
-                 <button id="newTreeBtn" class="bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="新しいロジックツリーを作成">新規作成</button>
-                 <button id="saveBtn" class="bg-cyan-500 hover:bg-cyan-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="現在の状態をブラウザに保存">保存</button>
-                 <button id="exportBtn" class="bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-transform transform hover:scale-105" title="現在のロジックツリーをファイルに保存">エクスポート</button>
-                <label for="importFile" class="bg-purple-500 hover:bg-purple-600 text-white font-semibold py-2 px-4 rounded-lg shadow cursor-pointer transition-transform transform hover:scale-105" title="ファイルからロジックツリーを読み込む">
-                    インポート
-                </label>
-                <input type="file" id="importFile" class="hidden" accept=".json">
-            </div>
-        </div>
-    </header>
 
-    <!-- タブコンテナ -->
-    <div id="tabs-container" class="bg-slate-200 p-1 flex items-center shadow-inner z-10"></div>
+// --- 1. 実行設定 ---
+const SETTINGS = {
+SHOULD_CLEAR_ALL_SLIDES: true,
+TARGET_PRESENTATION_ID: null
+};
 
-    <!-- ロジックツリーキャンバス -->
-    <main id="canvas-container" class="flex-grow relative overflow-auto">
-        <div id="mindmap" class="absolute top-0 left-0">
-             <svg id="connector-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none"></svg>
-        </div>
-    </main>
+// --- 2. マスターデザイン設定 (Pixel Perfect Ver.) ---
+const CONFIG = {
+BASE_PX: { W: 960, H: 540 },
 
-    <!-- 説明モーダル -->
-    <div id="help-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-xl shadow-2xl p-8 max-w-2xl w-full transform transition-all">
-            <h2 class="text-2xl font-bold mb-4 text-slate-800">ロジックツリーの使い方</h2>
-            <ul class="space-y-3 text-slate-600 list-disc list-inside">
-                <li><strong class="text-green-500">ブラウザ保存:</strong> 作業内容は<strong class="text-green-600">お使いのブラウザに自動で保存</strong>されます。F5で更新しても消えません。</li>
-                <li><strong class="text-orange-500">注意:</strong> 別のPCやブラウザではデータは共有されません。タブを閉じるとデータが消える場合があります。キャッシュを消去するとデータが消えることがあります。</li>
-                <li><strong class="text-indigo-500">タブ機能:</strong> 「新規作成」で新しいタブを追加し、複数のツリーを管理できます（最大10個）。</li>
-                <li><strong class="text-blue-500">連結の変更:</strong> ノードをドラッグして、別のノードの上にドロップすると、親子関係を変更できます。</li>
-            </ul>
-            <div class="mt-8 text-right">
-                <button id="close-help-modal-btn" class="bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 px-6 rounded-lg shadow transition-transform transform hover:scale-105">閉じる</button>
-            </div>
-        </div>
-    </div>
+// レイアウトの基準となる不変のpx値
+POS_PX: {
+titleSlide: {
+logo:       { left: 55,  top: 105,  width: 135 },
+title:      { left: 50,  top: 200, width: 830, height: 90 },
+date:       { left: 50,  top: 450, width: 250, height: 40 },
+},
 
-    <!-- カスタムモーダル -->
-    <div id="custom-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div class="bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full">
-            <p id="modal-message" class="text-slate-700 mb-4"></p>
-            <div id="modal-buttons" class="flex justify-end space-x-2">
-                <button id="modal-confirm-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg">OK</button>
-                <button id="modal-cancel-btn" class="bg-slate-300 hover:bg-slate-400 text-slate-800 font-semibold py-2 px-4 rounded-lg">キャンセル</button>
-            </div>
-        </div>
-    </div>
+// 共通ヘッダーを持つ各スライド  
+contentSlide: {  
+  headerLogo:     { right: 20, top: 20, width: 75 },  
+  title:          { left: 25, top: 50,  width: 830, height: 65 },  
+  titleUnderline: { left: 25, top: 118, width: 260, height: 4 },  
+  subhead:        { left: 25, top: 130, width: 830, height: 40 },  
+  body:           { left: 25, top: 172, width: 910, height: 290 },  
+  twoColLeft:     { left: 25,  top: 172, width: 440, height: 290 },  
+  twoColRight:    { left: 495, top: 172, width: 440, height: 290 }  
+},  
+processSlide: {  
+  headerLogo:     { right: 20, top: 20, width: 75 },  
+  title:          { left: 25, top: 50,  width: 830, height: 65 },  
+  titleUnderline: { left: 25, top: 118, width: 260, height: 4 },  
+  subhead:        { left: 25, top: 130, width: 830, height: 40 },  
+  area:           { left: 25, top: 152, width: 910, height: 290 }  
+},  
+cardsSlide: { // This POS_PX is used by both cards and headerCards
+  headerLogo:     { right: 20, top: 20, width: 75 },  
+  title:          { left: 25, top: 50,  width: 830, height: 65 },  
+  titleUnderline: { left: 25, top: 118, width: 260, height: 4 },  
+  subhead:        { left: 25, top: 130, width: 830, height: 40 },  
+  gridArea:       { left: 25, top: 160, width: 910, height: 290 }  
+},  
+sectionSlide: {  
+  title:      { left: 55, top: 230, width: 840, height: 80 },  
+  ghostNum:   { left: 35, top: 120, width: 400, height: 200 }
+},
 
-    <div id="measure-node" class="absolute -top-full p-2" style="font-size: 14px; max-width: 220px; font-weight: 500; visibility: hidden; word-break: break-word; overflow-wrap: break-word; pointer-events: none;"></div>
+footer: {  
+  leftText:  { left: 15, top: 505, width: 250, height: 20 },  
+  rightPage: { right: 15, top: 505, width: 50,  height: 20 }  
+},  
+bottomBar: { left: 0, top: 534, width: 960, height: 6 }  
 
-    <script>
-        const mindmapContainer = document.getElementById('mindmap');
-        const connectorCanvas = document.getElementById('connector-canvas');
-        const addNodeBtn = document.getElementById('addNodeBtn');
-        const removeNodeBtn = document.getElementById('removeNodeBtn');
-        const colorPicker = document.getElementById('colorPicker');
-        const exportBtn = document.getElementById('exportBtn');
-        const importFile = document.getElementById('importFile');
-        const newTreeBtn = document.getElementById('newTreeBtn');
-        const saveBtn = document.getElementById('saveBtn');
-        const tabsContainer = document.getElementById('tabs-container');
-        const helpModal = document.getElementById('help-modal');
-        const closeHelpModalBtn = document.getElementById('close-help-modal-btn');
-        const measureNode = document.getElementById('measure-node');
-        
-        const customModal = document.getElementById('custom-modal');
-        const modalMessage = document.getElementById('modal-message');
-        const modalConfirmBtn = document.getElementById('modal-confirm-btn');
-        const modalCancelBtn = document.getElementById('modal-cancel-btn');
-        const saveStatus = document.getElementById('save-status');
+},
 
-        let trees = [];
-        let activeTreeId = null;
-        let selectedNodeId = null;
-        let draggedNodeId = null;
-        let modalConfirmCallback = null;
-        let isEditing = false;
-        let saveStatusTimeoutId = null;
+FONTS: {
+family: 'Arial', // デフォルト、プロパティから動的に変更可能
+sizes: {
+title: 40, date: 16, sectionTitle: 38, contentTitle: 28, subhead: 18,
+body: 14, footer: 9, chip: 11, laneTitle: 13, small: 10,
+processStep: 14, axis: 12, ghostNum: 180
+}
+},
+COLORS: {
+primary_color: '#4285F4', text_primary: '#333333', background_white: '#FFFFFF',
+background_gray: '#f8f9fa', faint_gray: '#e8eaed', lane_title_bg: '#f8f9fa',
+table_header_bg: '#f8f9fa', lane_border: '#dadce0', card_bg: '#ffffff',
+card_border: '#dadce0', neutral_gray: '#9e9e9e', ghost_gray: '#efefed'
+},
+DIAGRAM: {
+laneGap_px: 24, lanePad_px: 10, laneTitle_h_px: 30, cardGap_px: 12,
+cardMin_h_px: 48, cardMax_h_px: 70, arrow_h_px: 10, arrowGap_px: 8
+},
 
-        const NODE_HEIGHT_MIN = 40, LEVEL_GAP = 150, SIBLING_GAP = 20;
-        const COLOR_PALETTE = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#06b6d4', '#6366f1', '#a855f7', '#d946ef', '#ec4899'];
-        const LOCAL_STORAGE_KEY = 'logicTreesData_v3';
-        const WINDOW_NAME_PREFIX = 'logicTreeData=';
+LOGOS: {
+header: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/640px-Google_2015_logo.svg.png',
+closing: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/640px-Google_2015_logo.svg.png'
+},
 
-        function showModal(message, type = 'alert', onConfirm = null) {
-            modalMessage.textContent = message;
-            modalConfirmCallback = onConfirm;
-            modalConfirmBtn.textContent = (type === 'confirm') ? 'OK' : '閉じる';
-            modalCancelBtn.style.display = (type === 'confirm') ? 'inline-block' : 'none';
-            customModal.style.display = 'flex';
-            customModal.classList.add('modal-enter');
-            customModal.classList.remove('modal-leave');
-        }
+FOOTER_TEXT: `© ${new Date().getFullYear()} Google Inc.`
+};
 
-        function hideModal() {
-            customModal.classList.add('modal-leave');
-            customModal.classList.remove('modal-enter');
-            setTimeout(() => { customModal.style.display = 'none'; }, 300);
-        }
-        
-        modalConfirmBtn.addEventListener('click', () => { if (modalConfirmCallback) modalConfirmCallback(); hideModal(); });
-        modalCancelBtn.addEventListener('click', hideModal);
+// --- 3. スライドデータ（サンプル：必ず置換してください） ---
+const slideData = [
+  { type: 'title', title: '新規採用者教育と既存体制の改善計画', date: '2025.09.18', notes: '本日は、新規採用者の教育計画と、それに伴う既存教育体制の改善点についてご報告します。' },
+  { type: 'content', title: '本日お伝えすること', points: ['新規採用者の配属と教育計画', '既存教育体制の課題と改善', '今後の展望とアクションプラン'], notes: '本日はこちらの3つの章立てでご説明します。まず新規採用者の計画、次に既存体制の課題、最後に今後のアクションプランです。' },
+  { type: 'section', title: '1. 新規採用者の配属と教育計画', notes: '最初の章では、新規採用者の配属と具体的な教育計画についてご説明します。' },
+  {
+    type: 'bulletCards',
+    title: '新規採用者の個別教育プラン',
+    subhead: '外半セクション配属の2名に対する個別アプローチ',
+    items: [
+      {
+        title: '長井氏への教育プラン',
+        desc: '担当は**岩立氏**。使用機種の違いを考慮し、[[旧ホミスの操作]]に重点を置いた指導を実施'
+      },
+      {
+        title: '手塚氏への教育プラン',
+        desc: '担当は**村上氏**。[[電子カルテ操作]]または[[正しい算定方法]]に焦点を当てた指導を実施'
+      },
+      {
+        title: '共通サポート体制',
+        desc: '担当者不在時は**相馬ひとみ氏**がサポート。本郷/腰ヶ谷勤務も考慮した柔軟な体制'
+      }
+    ],
+    notes: 'まず、新規採用者である長井様と手塚様の教育プランです。お二人は外半セクションへ配属となりますが、それぞれ使用するシステムが異なるため、個別担当制で教育を進めます。長井様は岩立さん、手塚様は村上さんが担当します。また、共通のサポートとして相馬さんが担当者不在時をフォローします。'
+  },
+  {
+    type: 'process',
+    title: '5日間の初期研修計画',
+    subhead: '理解度を可視化し、着実なスキルアップを促す',
+    steps: [
+      '算定管理量のチェックシート作成',
+      '研修スケジュールの策定（5日間）',
+      'スケジュールと卒業基準の連携',
+      '進捗状況の定期的な確認',
+      '習熟度に応じた個別フォローアップ'
+    ],
+    notes: '具体的な研修計画として、こちらの5ステップを予定しています。算定管理量のチェックシートを用いて理解度を確認し、スケジュールと卒業基準を明確に連携させることで、着実なスキルアップを目指します。'
+  },
+  { type: 'section', title: '2. 既存教育体制の課題と改善', notes: '次に、既存の教育体制における課題と、その改善策についてご説明します。' },
+  {
+    type: 'content',
+    title: '新システム導入に伴う教育体制の強化',
+    subhead: '新ホミス導入拡大を見据えた対応',
+    points: [
+      '[[教育対象者の拡大]]: 外半セクションでの新ホミス導入増加の可能性',
+      '[[実践重視の教育]]: デモ環境の制限から、実環境での経験が重要',
+      '[[理解度の深掘り]]: 新シートを用いて個々の習熟度を正確に把握し指導'
+    ],
+    notes: '次に、既存教育体制の課題です。特に、新ホミスの導入が拡大しており、教育対象者が増える可能性があります。デモ環境に制限があるため、実環境でのOJTを重視し、新しいチェックシートで個々の理解度を深掘りしていく方針です。'
+  },
+  {
+    type: 'cards',
+    title: 'その他教育課題と関連業務',
+    columns: 3,
+    items: [
+      {
+        title: '重点教育項目の確認',
+        desc: '在宅自己注射管理料に関する理解度の再確認と徹底'
+      },
+      {
+        title: '継続的な評価とFB',
+        desc: '若林氏の配属状況と評価フィードバックの議論を継続'
+      },
+      {
+        title: '業務引き継ぎの実施',
+        desc: '岡部氏の異動に伴う採用業務を2人体制で確実に引き継ぎ'
+      }
+    ],
+    notes: 'その他、在宅自己注射管理料の理解度確認や、若林様の評価フィードバック、岡部様の異動に伴う採用業務の引き継ぎなど、関連業務も並行して進めてまいります。'
+  },
+  { type: 'section', title: '3. 今後の展望とアクションプラン', notes: '最後の章では、教育部門の目標と、具体的な次のアクションについて共有します。' },
+  {
+    type: 'content',
+    title: '教育部門の今期目標',
+    subhead: '前年度の方針を踏襲し、定着支援を強化',
+    points: [
+      '**基本方針**: 前年度の目標設定と方針を踏襲',
+      '**村上氏の意欲**: [[新入社員が長く働き続けられる環境作り]]への貢献',
+      '**体制強化**: 教育担当者間の連携を密にし、サポート体制を充実'
+    ],
+    notes: '教育部門の今期目標は、基本的には前年度の方針を踏襲します。村上さんからは、新入社員が安心して長く働ける環境作りに貢献したいとの力強いコメントをいただいています。'
+  },
+  {
+    type: 'headerCards',
+    title: '推奨される次のステップ (Next Action)',
+    columns: 2,
+    items: [
+      {
+        title: '今井 稔 氏 → 村上 はるみ 氏',
+        desc: '若林氏と富長氏に関する[[フィードバック資料の共有]]'
+      },
+      {
+        title: '今井 稔 氏 → 土田 氏',
+        desc: '採用チャットへ[[村上はるみ氏を追加]]するよう相談'
+      }
+    ],
+    notes: '最後に、具体的な次のアクションです。私から村上さんへ若林様と富長様のフィードバック資料を共有します。また、土田さんにご相談の上、村上さんを採用関連のチャットにご招待します。'
+  },
+  { type: 'closing', notes: 'ご清聴いただき、ありがとうございました。ご質問などございましたら、よろしくお願いいたします。' }
+];
 
-        function initialize() {
-            loadFromStorage();
-            if (!localStorage.getItem('visitedLogicTree_v3')) {
-                helpModal.style.display = 'flex';
-                localStorage.setItem('visitedLogicTree_v3', 'true');
-            }
-            renderAll();
-        }
-        
-        function loadFromStorage() {
-            let storedData = null;
-            let loadedFrom = '';
 
-            try {
-                // 1. Try localStorage first
-                storedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-                if (storedData) loadedFrom = 'localStorage';
+// --- 4. メイン実行関数（エントリーポイント） ---
+let __SECTION_COUNTER = 0; // 章番号カウンタ（ゴースト数字用）
 
-                // 2. If localStorage is empty, try window.name
-                if (!storedData && window.name.startsWith(WINDOW_NAME_PREFIX)) {
-                    storedData = window.name.substring(WINDOW_NAME_PREFIX.length);
-                    if(storedData) loadedFrom = 'window.name';
-                }
+/**
+ * プレゼンテーション生成のメイン関数
+ * 実行時間: 約3-6分
+ * 最大スライド数: 50枚
+ */
+function generatePresentation() {
+  const userSettings = PropertiesService.getScriptProperties().getProperties();
+  if (userSettings.primaryColor) CONFIG.COLORS.primary_color = userSettings.primaryColor;
+  if (userSettings.footerText) CONFIG.FOOTER_TEXT = userSettings.footerText;
+  if (userSettings.headerLogoUrl) CONFIG.LOGOS.header = userSettings.headerLogoUrl;
+  if (userSettings.closingLogoUrl) CONFIG.LOGOS.closing = userSettings.closingLogoUrl;
+  if (userSettings.fontFamily) CONFIG.FONTS.family = userSettings.fontFamily;
 
-                if (storedData) {
-                    const data = JSON.parse(storedData);
-                    if (data && Array.isArray(data.trees) && data.hasOwnProperty('activeTreeId')) {
-                        trees = data.trees;
-                        activeTreeId = data.activeTreeId;
-                        
-                        if (!trees.some(t => t.id === activeTreeId)) {
-                            activeTreeId = trees.length > 0 ? trees[0].id : null;
-                        }
-                        
-                        if (trees.length === 0) {
-                           addNewTree(false);
-                        }
-                        console.log(`Data loaded from ${loadedFrom}`);
-                        return; // Exit function after successful load
-                    }
-                }
-                
-                // If no valid data is found anywhere, start fresh.
-                addNewTree(false);
+  let presentation;
+  try {
+    presentation = SETTINGS.TARGET_PRESENTATION_ID
+      ? SlidesApp.openById(SETTINGS.TARGET_PRESENTATION_ID)
+      : SlidesApp.getActivePresentation();
+    if (!presentation) throw new Error('対象のプレゼンテーションが見つかりません。');
 
-            } catch (error) {
-                console.error("Failed to load data:", error);
-                localStorage.removeItem(LOCAL_STORAGE_KEY);
-                window.name = '';
-                trees = [];
-                activeTreeId = null;
-                addNewTree(false);
-                showModal('データの読み込みに失敗しました。新しいツリーを開始します。');
-            }
-        }
+    if (SETTINGS.SHOULD_CLEAR_ALL_SLIDES) {
+      const slides = presentation.getSlides();
+      for (let i = slides.length - 1; i >= 0; i--) slides[i].remove();
+    }
 
-        function saveToStorage(manual = false) {
-            let savedTo = '';
-            try {
-                const dataString = JSON.stringify({ trees, activeTreeId });
+    __SECTION_COUNTER = 0;
 
-                // 1. Try to save to localStorage
-                try {
-                    localStorage.setItem(LOCAL_STORAGE_KEY, dataString);
-                    savedTo = 'ブラウザ';
-                } catch (e) {
-                    console.warn("Could not save to localStorage, falling back to window.name.", e);
-                    // 2. Fallback to window.name
-                    window.name = WINDOW_NAME_PREFIX + dataString;
-                    savedTo = 'タブ';
-                }
-                showSaveStatus(manual ? `${savedTo}に保存しました` : '自動保存済み');
-            } catch (error) {
-                console.error("Failed to save data:", error);
-                showSaveStatus('保存エラー', true);
-            }
-        }
-        
-        function showSaveStatus(message, isError = false) {
-             if (saveStatusTimeoutId) clearTimeout(saveStatusTimeoutId);
-             saveStatus.textContent = message;
-             saveStatus.className = `text-sm ml-4 transition-opacity duration-500 ${isError ? 'text-red-500' : 'text-slate-500'}`;
-             saveStatus.classList.remove('opacity-0');
-             if (!isError) {
-                 saveStatusTimeoutId = setTimeout(() => saveStatus.classList.add('opacity-0'), 2000);
-             }
-        }
-        
-        function getCurrentTree() { return trees.find(t => t.id === activeTreeId); }
-        function getNodes() { const tree = getCurrentTree(); return tree ? tree.nodes : []; }
-        function getRootNode() { const nodes = getNodes(); return nodes ? nodes.find(n => n.parentId === null) : null; }
+    const layout = createLayoutManager(presentation.getPageWidth(), presentation.getPageHeight());
 
-        function updateSubtreeColor(startNodeId, color) {
-            const nodes = getNodes();
-            if(!nodes) return;
-            const queue = [startNodeId];
-            while (queue.length > 0) {
-                const currentId = queue.shift();
-                const currentNode = nodes.find(n => n.id === currentId);
-                if (currentNode) currentNode.color = color;
-                const children = nodes.filter(n => n.parentId === currentId);
-                queue.push(...children.map(c => c.id));
-            }
-        }
+    let pageCounter = 0;
+    for (const data of slideData) {
+      try {
+        const generator = slideGenerators[data.type];
+        if (data.type !== 'title' && data.type !== 'closing') pageCounter++;
+        if (generator) {
+          const slide = presentation.appendSlide(SlidesApp.PredefinedLayout.BLANK);
+          generator(slide, data, layout, pageCounter);
 
-        function updateAllNodeColors() {
-            const root = getRootNode();
-            if (!root) return;
-            const nodes = getNodes();
-            const firstLevelChildren = nodes.filter(n => n.parentId === root.id);
-            firstLevelChildren.forEach((child, index) => {
-                const color = COLOR_PALETTE[index % COLOR_PALETTE.length];
-                updateSubtreeColor(child.id, color);
-            });
-        }
-        
-        function getVisibleNodes() {
-            const nodes = getNodes();
-            if (!nodes || nodes.length === 0) return [];
-            const collapsedRootIds = new Set(nodes.filter(n => n.isCollapsed).map(n => n.id));
-            if (collapsedRootIds.size === 0) return nodes;
-            const visible = [];
-            const nodeMap = new Map(nodes.map(node => [node.id, node]));
-            for (const node of nodes) {
-                let isVisible = true, current = node;
-                while (current.parentId) {
-                    const parent = nodeMap.get(current.parentId);
-                    if (!parent || collapsedRootIds.has(parent.id)) { isVisible = false; break; }
-                    current = parent;
-                }
-                if (isVisible) visible.push(node);
-            }
-            return visible;
-        }
+          if (data.notes) {
+            try {
+              const notesShape = slide.getNotesPage().getSpeakerNotesShape();
+              if (notesShape) {
+                notesShape.getText().setText(data.notes);
+              }
+            } catch (e) {
+              Logger.log(`スピーカーノートの設定に失敗しました: ${e.message}`);
+            }
+          }
+        }
+      } catch (e) {
+        Logger.log(`スライドの生成をスキップしました (エラー発生)。 Type: ${data.type}, Title: ${data.title || 'N/A'}, Error: ${e.message}`);
+      }
+    }
 
-        function layoutLogicTree() {
-            const nodes = getNodes();
-            if (!nodes || nodes.length === 0) return;
-            const visibleNodes = getVisibleNodes();
-            if (visibleNodes.length === 0 && nodes.length > 0) {
-                 const root = getRootNode(); if(root) visibleNodes.push(root);
-            }
-            if (visibleNodes.length === 0) return;
-            
-            visibleNodes.forEach(node => {
-                measureNode.textContent = node.text || ' ';
-                node.width = measureNode.offsetWidth;
-                node.height = measureNode.offsetHeight;
-            });
+  } catch (e) {
+    Logger.log(`処理が中断されました: ${e.message}\nStack: ${e.stack}`);
+  }
+}
 
-            const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-            const childrenMap = new Map();
-            visibleNodes.forEach(node => {
-                const parentId = node.parentId && visibleNodeIds.has(node.parentId) ? node.parentId : 'root';
-                if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
-                childrenMap.get(parentId).push(node.id);
-            });
-            const nodeMap = new Map(visibleNodes.map(n => [n.id, n]));
-            const subtreeHeight = new Map();
+// --- 5. カスタムメニュー設定関数 ---
+function onOpen(e) {
+  SlidesApp.getUi()
+    .createMenu('カスタム設定')
+    .addItem('🎨 スライドを生成', 'generatePresentation')
+    .addSeparator()
+    .addSubMenu(SlidesApp.getUi().createMenu('⚙️ 設定')
+      .addItem('プライマリカラー', 'setPrimaryColor')
+      .addItem('フォント', 'setFont')
+      .addItem('フッターテキスト', 'setFooterText')
+      .addItem('ヘッダーロゴ', 'setHeaderLogo')
+      .addItem('クロージングロゴ', 'setClosingLogo'))
+    .addItem('🔄 リセット', 'resetSettings')
+    .addToUi();
+}
 
-            function calculateHeight(nodeId) {
-                if (subtreeHeight.has(nodeId)) return subtreeHeight.get(nodeId);
-                const children = childrenMap.get(nodeId) || [];
-                const node = nodeMap.get(nodeId);
-                if (!node) return 0;
-                if (children.length === 0) { 
-                    const height = Math.max(node.height, NODE_HEIGHT_MIN);
-                    subtreeHeight.set(nodeId, height); return height; 
-                }
-                let totalHeight = children.reduce((sum, childId) => sum + calculateHeight(childId), 0) + (children.length - 1) * SIBLING_GAP;
-                subtreeHeight.set(nodeId, totalHeight);
-                return totalHeight;
-            }
-            function positionNodes(nodeId, level, startY) {
-                const node = nodeMap.get(nodeId); if (!node) return;
-                const children = childrenMap.get(nodeId) || [];
-                node.x = level * LEVEL_GAP + 50;
-                const myHeight = subtreeHeight.get(nodeId) || Math.max(node.height, NODE_HEIGHT_MIN);
-                node.y = startY + (myHeight / 2) - (Math.max(node.height, NODE_HEIGHT_MIN) / 2);
-                let currentY = startY;
-                children.forEach(childId => { positionNodes(childId, level + 1, currentY); currentY += (subtreeHeight.get(childId) || 0) + SIBLING_GAP; });
-            }
-            const roots = childrenMap.get('root') || [];
-            if (roots.length === 0) return;
-            roots.forEach(calculateHeight);
-            let currentYOffset = 50;
-            roots.forEach(rootId => { positionNodes(rootId, 0, currentYOffset); currentYOffset += (subtreeHeight.get(rootId) || 0) + SIBLING_GAP * 2; });
-        }
+// プライマリカラー設定
+function setPrimaryColor() {
+  const ui = SlidesApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const currentValue = props.getProperty('primaryColor') || '#4285F4';
+  
+  const result = ui.prompt(
+    'プライマリカラー設定',
+    `カラーコードを入力してください（例: #4285F4）\n現在値: ${currentValue}\n\n空欄で既定値にリセットされます。`,
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const value = result.getResponseText().trim();
+    if (value === '') {
+      props.deleteProperty('primaryColor');
+      ui.alert('プライマリカラーをリセットしました。');
+    } else {
+      props.setProperty('primaryColor', value);
+      ui.alert('プライマリカラーを保存しました。');
+    }
+  }
+}
 
-        function renderAll(shouldSave = true) {
-            renderTabs();
-            renderCanvas();
-            if(shouldSave) saveToStorage();
-        }
+// フォント設定（プルダウン形式）
+function setFont() {
+  const ui = SlidesApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const currentValue = props.getProperty('fontFamily') || 'Arial';
+  
+  const fonts = [
+    'Arial',
+    'Noto Sans JP',
+    'M PLUS 1p',
+    'Noto Serif JP'
+  ];
+  
+  const fontList = fonts.map((font, index) => 
+    `${index + 1}. ${font}${font === currentValue ? ' (現在)' : ''}`
+  ).join('\n');
+  
+  const result = ui.prompt(
+    'フォント設定',
+    `使用するフォントの番号を入力してください:\n\n${fontList}\n\n※ 空欄で既定値（Arial）にリセット`,
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const input = result.getResponseText().trim();
+    if (input === '') {
+      props.deleteProperty('fontFamily');
+      ui.alert('フォントをリセットしました（Arial）。');
+    } else {
+      const index = parseInt(input) - 1;
+      if (index >= 0 && index < fonts.length) {
+        props.setProperty('fontFamily', fonts[index]);
+        ui.alert(`フォントを「${fonts[index]}」に設定しました。`);
+      } else {
+        ui.alert('無効な番号です。設定をキャンセルしました。');
+      }
+    }
+  }
+}
 
-        function renderTabs() {
-            tabsContainer.innerHTML = '';
-            trees.forEach(tree => {
-                const tab = document.createElement('div');
-                tab.className = `tab flex items-center p-2 rounded-t-lg cursor-pointer ${tree.id === activeTreeId ? 'bg-slate-100 font-semibold text-blue-600' : 'bg-slate-300 text-slate-600 hover:bg-slate-100'}`;
-                tab.addEventListener('click', () => switchTab(tree.id));
-                const tabName = document.createElement('span');
-                tabName.textContent = tree.name;
-                tab.appendChild(tabName);
-                if (trees.length > 1) {
-                    const closeBtn = document.createElement('button');
-                    closeBtn.innerHTML = '&times;';
-                    closeBtn.className = 'tab-close-btn ml-2 font-bold leading-none p-1 rounded-full hover:bg-red-200';
-                    closeBtn.title = 'このツリーを削除';
-                    closeBtn.addEventListener('click', (e) => { e.stopPropagation(); removeTree(tree.id); });
-                    tab.appendChild(closeBtn);
-                }
-                tabsContainer.appendChild(tab);
-            });
-        }
-        
-        function renderCanvas() {
-            layoutLogicTree();
-            mindmapContainer.innerHTML = '';
-            mindmapContainer.appendChild(connectorCanvas);
-            connectorCanvas.innerHTML = '';
-            const visibleNodes = getVisibleNodes();
-            const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-            let maxX = 0, maxY = 0;
-            visibleNodes.forEach(node => {
-                const nodeEl = document.createElement('div');
-                Object.assign(nodeEl, { id: `node-${node.id}`, className: 'node rounded-xl shadow-lg text-white flex items-center justify-center text-center', draggable: true });
-                Object.assign(nodeEl.style, { backgroundColor: node.color, left: `${node.x}px`, top: `${node.y}px`, height: `${Math.max(node.height, NODE_HEIGHT_MIN)}px` });
-                const textEl = document.createElement('span');
-                textEl.textContent = node.text; nodeEl.appendChild(textEl);
-                if (node.id === selectedNodeId) nodeEl.classList.add('selected');
-                const hasChildren = getNodes().some(child => child.parentId === node.id);
-                if (hasChildren) {
-                    const toggleBtn = document.createElement('button');
-                    Object.assign(toggleBtn, { className: 'collapse-toggle absolute -bottom-3 w-6 h-6 bg-white border-2 border-slate-400 rounded-full flex items-center justify-center text-slate-600 font-bold text-lg leading-none', textContent: node.isCollapsed ? '+' : '−', title: node.isCollapsed ? '展開' : '折りたたむ' });
-                    toggleBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleCollapse(node.id); });
-                    nodeEl.appendChild(toggleBtn);
-                }
-                ['click', 'dblclick', 'dragstart', 'dragend', 'dragover', 'dragleave', 'drop'].forEach(evt => {
-                    const handler = { click: (e) => { e.stopPropagation(); selectNode(node.id); }, dblclick: onDoubleClick, dragstart: handleDragStart, dragend: handleDragEnd, dragover: handleDragOver, dragleave: handleDragLeave, drop: handleDrop }[evt];
-                    nodeEl.addEventListener(evt, handler);
-                });
-                mindmapContainer.appendChild(nodeEl);
-                if (node.parentId && visibleNodeIds.has(node.parentId)) { const parentNode = getNodes().find(p => p.id === node.parentId); if (parentNode) drawConnector(parentNode, node); }
-                maxX = Math.max(maxX, node.x + nodeEl.offsetWidth); maxY = Math.max(maxY, node.y + nodeEl.offsetHeight);
-            });
-            const totalSize = { width: `${maxX + 200}px`, height: `${maxY + 200}px` };
-            Object.assign(mindmapContainer.style, totalSize); Object.assign(connectorCanvas.style, totalSize);
-        }
+// フッターテキスト設定
+function setFooterText() {
+  const ui = SlidesApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const currentValue = props.getProperty('footerText') || '未設定';
+  
+  const result = ui.prompt(
+    'フッターテキスト設定',
+    `フッターに表示するテキストを入力してください\n現在値: ${currentValue}\n\n空欄でリセットされます。`,
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const value = result.getResponseText().trim();
+    if (value === '') {
+      props.deleteProperty('footerText');
+      ui.alert('フッターテキストをリセットしました。');
+    } else {
+      props.setProperty('footerText', value);
+      ui.alert('フッターテキストを保存しました。');
+    }
+  }
+}
 
-        function drawConnector(parent, child) {
-            const parentEl = document.getElementById(`node-${parent.id}`), childEl = document.getElementById(`node-${child.id}`);
-            if (!parentEl || !childEl) return;
-            const p = { x: parent.x + parentEl.offsetWidth, y: parent.y + parentEl.offsetHeight / 2 };
-            const c = { x: child.x, y: child.y + childEl.offsetHeight / 2 };
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            path.setAttribute('d', `M ${p.x} ${p.y} H ${p.x + (c.x - p.x) / 2} V ${c.y} H ${c.x}`);
-            path.setAttribute('class', 'connector');
-            connectorCanvas.appendChild(path);
-        }
+// ヘッダーロゴ設定
+function setHeaderLogo() {
+  const ui = SlidesApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const currentValue = props.getProperty('headerLogoUrl') || '未設定';
+  
+  const result = ui.prompt(
+    'ヘッダーロゴ設定',
+    `ヘッダーロゴのURLを入力してください\n現在値: ${currentValue}\n\n空欄でリセットされます。`,
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const value = result.getResponseText().trim();
+    if (value === '') {
+      props.deleteProperty('headerLogoUrl');
+      ui.alert('ヘッダーロゴをリセットしました。');
+    } else {
+      props.setProperty('headerLogoUrl', value);
+      ui.alert('ヘッダーロゴを保存しました。');
+    }
+  }
+}
 
-        function switchTab(treeId) { if (treeId === activeTreeId) return; activeTreeId = treeId; selectedNodeId = null; renderAll(true); }
+// クロージングロゴ設定
+function setClosingLogo() {
+  const ui = SlidesApp.getUi();
+  const props = PropertiesService.getScriptProperties();
+  const currentValue = props.getProperty('closingLogoUrl') || '未設定';
+  
+  const result = ui.prompt(
+    'クロージングロゴ設定',
+    `クロージングページのロゴURLを入力してください\n現在値: ${currentValue}\n\n空欄でリセットされます。`,
+    ui.ButtonSet.OK_CANCEL
+  );
+  
+  if (result.getSelectedButton() === ui.Button.OK) {
+    const value = result.getResponseText().trim();
+    if (value === '') {
+      props.deleteProperty('closingLogoUrl');
+      ui.alert('クロージングロゴをリセットしました。');
+    } else {
+      props.setProperty('closingLogoUrl', value);
+      ui.alert('クロージングロゴを保存しました。');
+    }
+  }
+}
 
-        function addNewTree(shouldSave = true) {
-            if (trees.length >= 10) { showModal('ツリーは最大10個まで作成できます。'); return; }
-            const nextTreeId = trees.length > 0 ? Math.max(0, ...trees.map(t => t.id)) + 1 : 1;
-            const newId = nextTreeId;
-            const newTree = { id: newId, name: `ツリー ${newId}`, nodes: [], nextNodeId: 1 };
-            const rootNode = { id: newTree.nextNodeId++, text: '中心テーマ', x: 0, y: 0, parentId: null, color: '#3b82f6', isCollapsed: false };
-            newTree.nodes.push(rootNode);
-            trees.push(newTree);
-            activeTreeId = newId;
-            selectedNodeId = rootNode.id;
-            updateAllNodeColors();
-            renderAll(shouldSave);
-        }
+function resetSettings() {
+  const ui = SlidesApp.getUi();
+  const result = ui.alert('設定のリセット', 'すべてのカスタム設定をリセットしますか？', ui.ButtonSet.YES_NO);
+  
+  if (result === ui.Button.YES) {
+    PropertiesService.getScriptProperties().deleteAllProperties();
+    ui.alert('すべての設定をリセットしました。\n\n• プライマリカラー: #4285F4\n• フォント: Arial\n• フッター/ロゴ: 未設定');
+  }
+}
 
-        function removeTree(treeId) {
-            showModal('このツリーを本当に削除しますか？この操作は元に戻せません。', 'confirm', () => {
-                trees = trees.filter(t => t.id !== treeId);
-                if (activeTreeId === treeId) { activeTreeId = trees.length > 0 ? trees[0].id : null; }
-                if (trees.length === 0) { addNewTree(); }
-                else { renderAll(true); }
-            });
-        }
-        
-        function addNode() {
-            const tree = getCurrentTree(); if (!tree) return;
-            if (selectedNodeId === null && tree.nodes.length > 0) { showModal('親となるノードを選択してください。'); return; }
-            const parentNode = tree.nodes.find(n => n.id === selectedNodeId);
-            const newNode = { id: tree.nextNodeId++, text: '新しいノード', x: 0, y: 0, parentId: parentNode ? parentNode.id : null, color: '#ffffff', isCollapsed: false };
-            tree.nodes.push(newNode);
-            if (parentNode && parentNode.isCollapsed) parentNode.isCollapsed = false;
-            updateAllNodeColors(); selectNode(newNode.id);
-        }
+// --- 6. スライド生成ディスパッチャ ---
+const slideGenerators = {
+  title: createTitleSlide,
+  section: createSectionSlide,
+  content: createContentSlide,
+  process: createProcessSlide,
+  cards: createCardsSlide,
+  headerCards: createHeaderCardsSlide,
+  bulletCards: createBulletCardsSlide,
+  closing: createClosingSlide,
+};
 
-        function addSiblingNode() {
-            const tree = getCurrentTree(); if (!tree) return;
-            if (selectedNodeId === null) return;
-            const selectedNode = tree.nodes.find(n => n.id === selectedNodeId);
-            if (!selectedNode || selectedNode.parentId === null) return;
-            const parentNode = tree.nodes.find(n => n.id === selectedNode.parentId);
-            const newNode = { id: tree.nextNodeId++, text: '新しいノード', x: 0, y: 0, parentId: selectedNode.parentId, color: '#ffffff', isCollapsed: false };
-            tree.nodes.push(newNode);
-            if (parentNode && parentNode.isCollapsed) parentNode.isCollapsed = false;
-            updateAllNodeColors(); selectNode(newNode.id);
-        }
-        
-        function reparentNode(childId, newParentId) {
-            const nodes = getNodes(); if (!nodes) return;
-            if (childId === newParentId) return;
-            const childNode = nodes.find(n => n.id === childId);
-            let current = nodes.find(n => n.id === newParentId);
-            while(current) { if (current.parentId === childId) return; current = nodes.find(n => n.id === current.parentId); }
-            if (childNode) { childNode.parentId = newParentId; updateAllNodeColors(); renderAll(true); }
-        }
+// --- 7. スライド生成関数群 ---
+function createTitleSlide(slide, data, layout) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
 
-        function toggleCollapse(nodeId) { const node = getNodes().find(n => n.id === nodeId); if (node) { node.isCollapsed = !node.isCollapsed; renderAll(true); } }
-        
-        function performRemoveNode() {
-            const tree = getCurrentTree(); if (!tree) return;
-            let idsToRemove = [selectedNodeId]; let queue = [selectedNodeId];
-            while(queue.length > 0) { const children = tree.nodes.filter(n => n.parentId === queue.shift()); idsToRemove.push(...children.map(c => c.id)); queue.push(...children.map(c => c.id)); }
-            const parentId = tree.nodes.find(n => n.id === selectedNodeId)?.parentId;
-            tree.nodes = tree.nodes.filter(n => !idsToRemove.includes(n.id));
-            updateAllNodeColors(); selectNode(parentId || (tree.nodes.length > 0 ? tree.nodes[0].id : null));
-        }
+  const logoRect = layout.getRect('titleSlide.logo');
+  try {
+    const logo = slide.insertImage(CONFIG.LOGOS.header);
+    const aspect = logo.getHeight() / logo.getWidth();
+    logo.setLeft(logoRect.left).setTop(logoRect.top).setWidth(logoRect.width).setHeight(logoRect.width * aspect);
+  } catch (e) {
+    // 画像挿入に失敗した場合はスキップして他の要素を描画
+  }
 
-        function removeNode() {
-            if (selectedNodeId === null) return;
-            if (getNodes().find(n=>n.id === selectedNodeId)?.parentId === null && getNodes().length > 1) { showModal('ルートノードを削除する前に、すべての子ノードを削除してください。'); return; }
-            const hasChildren = getNodes().some(n => n.parentId === selectedNodeId);
-            if (hasChildren) { showModal('このノードには子ノードがあります。一緒に削除されますが、よろしいですか？', 'confirm', performRemoveNode); } else { performRemoveNode(); }
-        }
+  const titleRect = layout.getRect('titleSlide.title');
+  const titleShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, titleRect.left, titleRect.top, titleRect.width, titleRect.height);
+  setStyledText(titleShape, data.title, { size: CONFIG.FONTS.sizes.title, bold: true });
 
-        function selectNode(id) { 
-            if (isEditing) return;
-            selectedNodeId = id; 
-            const node = getNodes().find(n => n.id === id); 
-            if (node) colorPicker.value = node.color; 
-            renderAll(true); 
-        }
+  const dateRect = layout.getRect('titleSlide.date');
+  const dateShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, dateRect.left, dateRect.top, dateRect.width, dateRect.height);
+  dateShape.getText().setText(data.date || '');
+  applyTextStyle(dateShape.getText(), { size: CONFIG.FONTS.sizes.date });
 
-        function changeNodeColor(color) {
-            if (selectedNodeId === null) return;
-            const nodes = getNodes();
-            const node = nodes.find(n => n.id === selectedNodeId);
-            if (node) {
-                const isRootChild = nodes.find(n => n.id === node.parentId)?.parentId === null;
-                if(node.parentId === null || isRootChild) { updateSubtreeColor(node.id, color); } else { node.color = color; }
-                renderAll(true);
-            }
-        }
+  drawBottomBar(slide, layout);
+}
 
-        function onDoubleClick(e) {
-            e.preventDefault();
-            isEditing = true;
-            const nodeEl = e.target.closest('.node'); if(!nodeEl) { isEditing = false; return; }
-            const nodeId = parseInt(nodeEl.id.replace('node-', ''));
-            const nodeData = getNodes().find(n => n.id === nodeId);
-            const textSpan = nodeEl.querySelector('span');
-            if (textSpan) textSpan.style.display = 'none';
+function createSectionSlide(slide, data, layout, pageNum) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_gray);
 
-            const input = document.createElement('textarea');
-            input.value = nodeData.text;
-            input.className = 'absolute inset-0 w-full h-full p-2 bg-white bg-opacity-80 text-black rounded-lg resize-none z-20';
-            nodeEl.appendChild(input); input.focus(); input.select();
+  // 透かし番号：sectionNo > タイトル先頭の数字 > 自動連番
+  __SECTION_COUNTER++;
+  const parsedNum = (() => {
+    if (Number.isFinite(data.sectionNo)) return Number(data.sectionNo);
+    const m = String(data.title || '').match(/^\s*(\d+)[\.．]/);
+    return m ? Number(m[1]) : __SECTION_COUNTER;
+  })();
+  const num = String(parsedNum).padStart(2, '0');
 
-            const onBlur = () => {
-                nodeData.text = input.value.trim() === '' ? '無題' : input.value;
-                if (nodeData.parentId === null) {
-                    const tree = getCurrentTree();
-                    tree.name = nodeData.text.substring(0, 20);
-                }
-                input.remove();
-                isEditing = false;
-                renderAll(true); 
-            };
-            input.addEventListener('blur', onBlur);
-            input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); input.blur(); } });
-        }
-        
-        function handleDragStart(e) { draggedNodeId = parseInt(e.target.id.replace('node-', '')); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => e.target.classList.add('dragging'), 0); }
-        function handleDragEnd(e) { e.target.classList.remove('dragging'); document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over')); draggedNodeId = null; }
-        function handleDragOver(e) { e.preventDefault(); const targetEl = e.target.closest('.node'); if (targetEl && parseInt(targetEl.id.replace('node-','')) !== draggedNodeId) { e.dataTransfer.dropEffect = 'move'; targetEl.classList.add('drag-over'); } }
-        function handleDragLeave(e) { e.target.closest('.node')?.classList.remove('drag-over'); }
-        function handleDrop(e) { e.preventDefault(); const targetEl = e.target.closest('.node'); targetEl?.classList.remove('drag-over'); if (!targetEl || draggedNodeId === null) return; const targetNodeId = parseInt(targetEl.id.replace('node-', '')); reparentNode(draggedNodeId, targetNodeId); }
+  const ghostRect = layout.getRect('sectionSlide.ghostNum');
+  const ghost = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, ghostRect.left, ghostRect.top, ghostRect.width, ghostRect.height);
+  ghost.getText().setText(num);
+  applyTextStyle(ghost.getText(), { size: CONFIG.FONTS.sizes.ghostNum, color: CONFIG.COLORS.ghost_gray, bold: true });
+  try { ghost.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch(e) {}
 
-        function exportData() {
-            const tree = getCurrentTree(); if (!tree) return;
-            const data = { nodes: tree.nodes, nextNodeId: tree.nextNodeId };
-            const dataStr = JSON.stringify(data, null, 2);
-            const blob = new Blob([dataStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = `${tree.name.replace(/\s/g, '_')}.json`; a.click();
-            URL.revokeObjectURL(url);
-        }
+  const titleRect = layout.getRect('sectionSlide.title');
+  const titleShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, titleRect.left, titleRect.top, titleRect.width, titleRect.height);
+  titleShape.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+  setStyledText(titleShape, data.title, { size: CONFIG.FONTS.sizes.sectionTitle, bold: true, align: SlidesApp.ParagraphAlignment.CENTER });
 
-        function importData(e) {
-            const file = e.target.files[0]; if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                try {
-                    const importedData = JSON.parse(event.target.result);
-                    if (Array.isArray(importedData.nodes) && importedData.nodes.every(n => 'id' in n && 'text' in n) && 'nextNodeId' in importedData) {
-                        showModal('現在のタブにインポートしますか？この操作は元に戻せません。', 'confirm', () => {
-                            const tree = getCurrentTree();
-                            tree.nodes = importedData.nodes;
-                            tree.nextNodeId = importedData.nextNodeId;
-                            tree.nodes.forEach(n => { if (n.isCollapsed === undefined) n.isCollapsed = false; });
-                            selectedNodeId = tree.nodes.length > 0 ? getRootNode()?.id : null;
-                            updateAllNodeColors(); 
-                            renderAll(true);
-                        });
-                    } else { showModal('無効なファイル形式です。'); }
-                } catch (error) { showModal('ファイルの読み込み中にエラーが発生しました。'); }
-            };
-            reader.readAsText(file); e.target.value = ''; 
-        }
+  addCucFooter(slide, layout, pageNum);
+}
 
-        addNodeBtn.addEventListener('click', addNode);
-        removeNodeBtn.addEventListener('click', removeNode);
-        newTreeBtn.addEventListener('click', () => addNewTree(true));
-        saveBtn.addEventListener('click', () => saveToStorage(true));
-        colorPicker.addEventListener('input', (e) => changeNodeColor(e.target.value));
-        exportBtn.addEventListener('click', exportData);
-        importFile.addEventListener('change', importData);
-        document.getElementById('canvas-container').addEventListener('click', (e) => { if (e.target.id === 'canvas-container' || e.target.id === 'mindmap') { selectNode(null); } });
-        closeHelpModalBtn.addEventListener('click', () => helpModal.style.display = 'none');
-        document.addEventListener('keydown', (e) => { if (isEditing || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return; switch (e.key) { case 'Tab': e.preventDefault(); if (selectedNodeId !== null) addNode(); break; case 'Enter': e.preventDefault(); if (selectedNodeId !== null) addSiblingNode(); break; } });
-        
-        // Save before leaving the page
-        window.addEventListener('beforeunload', () => saveToStorage(false));
+// content（1/2カラム + 小見出し + 画像）
+function createContentSlide(slide, data, layout, pageNum) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
+  drawStandardTitleHeader(slide, layout, 'contentSlide', data.title);
+  const dy = drawSubheadIfAny(slide, layout, 'contentSlide', data.subhead);
 
-        initialize();
-    </script>
-</body>
-</html>
+  // アジェンダ安全装置
+  const isAgenda = isAgendaTitle(data.title || '');
+  let points = Array.isArray(data.points) ? data.points.slice(0) : [];
+  if (isAgenda && (!points || points.length === 0)) {
+    points = buildAgendaFromSlideData();
+    if (points.length === 0) points = ['本日の目的', '進め方', '次のアクション'];
+  }
 
+  const hasImages = Array.isArray(data.images) && data.images.length > 0;
+  const isTwo = !!(data.twoColumn || data.columns);
+
+  if ((isTwo && (data.columns || points)) || (!isTwo && points && points.length > 0)) {
+    if (isTwo) {
+      let L = [], R = [];
+      if (Array.isArray(data.columns) && data.columns.length === 2) {
+        L = data.columns[0] || []; R = data.columns[1] || [];
+      } else {
+        const mid = Math.ceil(points.length / 2);
+        L = points.slice(0, mid); R = points.slice(mid);
+      }
+      const leftRect = offsetRect(layout.getRect('contentSlide.twoColLeft'), 0, dy);
+      const rightRect = offsetRect(layout.getRect('contentSlide.twoColRight'), 0, dy);
+      const leftShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, leftRect.left, leftRect.top, leftRect.width, leftRect.height);
+      const rightShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, rightRect.left, rightRect.top, rightRect.width, rightRect.height);
+      setBulletsWithInlineStyles(leftShape, L);
+      setBulletsWithInlineStyles(rightShape, R);
+    } else {
+      const bodyRect = offsetRect(layout.getRect('contentSlide.body'), 0, dy);
+      if (isAgenda) {
+        drawNumberedItems(slide, layout, bodyRect, points);
+      } else {
+        const bodyShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, bodyRect.left, bodyRect.top, bodyRect.width, bodyRect.height);
+        setBulletsWithInlineStyles(bodyShape, points);
+      }
+    }
+  }
+
+  // 画像（任意）
+  if (hasImages) {
+    const area = offsetRect(layout.getRect('contentSlide.body'), 0, dy);
+    renderImagesInArea(slide, layout, area, normalizeImages(data.images));
+  }
+
+  drawBottomBarAndFooter(slide, layout, pageNum);
+}
+
+// process（角枠1px＋一桁数字）
+function createProcessSlide(slide, data, layout, pageNum) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
+  drawStandardTitleHeader(slide, layout, 'processSlide', data.title);
+  const dy = drawSubheadIfAny(slide, layout, 'processSlide', data.subhead);
+
+  const area = offsetRect(layout.getRect('processSlide.area'), 0, dy);
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  const n = Math.max(1, steps.length);
+
+  const topPadding = layout.pxToPt(30);
+  const bottomPadding = layout.pxToPt(10);
+  const drawableHeight = area.height - topPadding - bottomPadding;
+  const gapY = drawableHeight / Math.max(1, n - 1);
+  const cx = area.left + layout.pxToPt(44);
+  const top0 = area.top + topPadding;
+
+  const line = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, cx - layout.pxToPt(1), top0 + layout.pxToPt(6), layout.pxToPt(2), gapY * (n - 1));
+  line.getFill().setSolidFill(CONFIG.COLORS.faint_gray);
+  line.getBorder().setTransparent();
+
+  for (let i = 0; i < n; i++) {
+    const cy = top0 + gapY * i;
+    const sz = layout.pxToPt(28);
+    const numBox = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, cx - sz/2, cy - sz/2, sz, sz);
+    numBox.getFill().setSolidFill(CONFIG.COLORS.primary_color);
+    numBox.getBorder().setTransparent();
+    const num = numBox.getText(); num.setText(String(i + 1));
+    applyTextStyle(num, { size: 12, bold: true, color: CONFIG.COLORS.background_white, align: SlidesApp.ParagraphAlignment.CENTER });
+
+    // 元のプロセステキストから先頭の数字を除去
+    let cleanText = String(steps[i] || '');
+    cleanText = cleanText.replace(/^\s*\d+[\.\s]*/, '');
+
+    const txt = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, cx + layout.pxToPt(28), cy - layout.pxToPt(16), area.width - layout.pxToPt(70), layout.pxToPt(32));
+    setStyledText(txt, cleanText, { size: CONFIG.FONTS.sizes.processStep });
+    try { txt.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch(e){}
+  }
+
+  drawBottomBarAndFooter(slide, layout, pageNum);
+}
+
+// cards（シンプルカード）
+function createCardsSlide(slide, data, layout, pageNum) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
+  drawStandardTitleHeader(slide, layout, 'cardsSlide', data.title);
+  const dy = drawSubheadIfAny(slide, layout, 'cardsSlide', data.subhead);
+
+  const area = offsetRect(layout.getRect('cardsSlide.gridArea'), 0, dy);
+  const items = Array.isArray(data.items) ? data.items : [];
+  const cols = Math.min(3, Math.max(2, Number(data.columns) || (items.length <= 4 ? 2 : 3)));
+  const gap = layout.pxToPt(16);
+  const rows = Math.ceil(items.length / cols);
+  const cardW = (area.width - gap * (cols - 1)) / cols;
+  const cardH = Math.max(layout.pxToPt(92), (area.height - gap * (rows - 1)) / rows);
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const r = Math.floor(idx / cols), c = idx % cols;
+    const left = area.left + c * (cardW + gap);
+    const top  = area.top  + r * (cardH + gap);
+
+    const card = slide.insertShape(SlidesApp.ShapeType.ROUND_RECTANGLE, left, top, cardW, cardH);
+    card.getFill().setSolidFill(CONFIG.COLORS.card_bg);
+    card.getBorder().getLineFill().setSolidFill(CONFIG.COLORS.card_border);
+    card.getBorder().setWeight(1);
+
+    const obj = items[idx];
+    if (typeof obj === 'string') {
+      setStyledText(card, obj, { size: CONFIG.FONTS.sizes.body });
+    } else {
+      const title = String(obj.title || '');
+      const desc  = String(obj.desc || '');
+      
+      if (title.length > 0 && desc.length > 0) {
+        // タイトル + 改行 + 説明文
+        const combined = `${title}\n\n${desc}`;
+        setStyledText(card, combined, { size: CONFIG.FONTS.sizes.body });
+        try { 
+          card.getText().getRange(0, title.length).getTextStyle().setBold(true);
+        } catch(e){}
+      } else if (title.length > 0) {
+        // タイトルのみ
+        setStyledText(card, title, { size: CONFIG.FONTS.sizes.body, bold: true });
+      } else {
+        // 説明文のみ（稀なケース）
+        setStyledText(card, desc, { size: CONFIG.FONTS.sizes.body });
+      }
+    }
+    try { card.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch(e) {}
+  }
+
+  drawBottomBarAndFooter(slide, layout, pageNum);
+}
+
+// headerCards（ヘッダー付きカード）
+function createHeaderCardsSlide(slide, data, layout, pageNum) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
+  drawStandardTitleHeader(slide, layout, 'cardsSlide', data.title);
+  const dy = drawSubheadIfAny(slide, layout, 'cardsSlide', data.subhead);
+
+  const area = offsetRect(layout.getRect('cardsSlide.gridArea'), 0, dy);
+  const items = Array.isArray(data.items) ? data.items : [];
+  const cols = Math.min(3, Math.max(2, Number(data.columns) || (items.length <= 4 ? 2 : 3)));
+  const gap = layout.pxToPt(16);
+  const rows = Math.ceil(items.length / cols);
+  const cardW = (area.width - gap * (cols - 1)) / cols;
+  const cardH = Math.max(layout.pxToPt(92), (area.height - gap * (rows - 1)) / rows);
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const r = Math.floor(idx / cols), c = idx % cols;
+    const left = area.left + c * (cardW + gap);
+    const top  = area.top  + r * (cardH + gap);
+
+    const obj = items[idx];
+    const titleText = (typeof obj === 'string') ? '' : String(obj.title || '');
+    const descText = (typeof obj === 'string') ? String(obj) : String(obj.desc || '');
+    
+    const headerHeight = layout.pxToPt(40);
+    const headerShape = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, left, top, cardW, headerHeight);
+    headerShape.getFill().setSolidFill(CONFIG.COLORS.primary_color);
+    headerShape.getBorder().getLineFill().setSolidFill(CONFIG.COLORS.card_border);
+    headerShape.getBorder().setWeight(1);
+    
+    const bodyShape = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, left, top + headerHeight, cardW, cardH - headerHeight);
+    bodyShape.getFill().setSolidFill(CONFIG.COLORS.card_bg);
+    bodyShape.getBorder().getLineFill().setSolidFill(CONFIG.COLORS.card_border);
+    bodyShape.getBorder().setWeight(1);
+    
+    const headerTextShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, left, top, cardW, headerHeight);
+    setStyledText(headerTextShape, titleText, { size: CONFIG.FONTS.sizes.body, bold: true, color: CONFIG.COLORS.background_white, align: SlidesApp.ParagraphAlignment.CENTER });
+    try { headerTextShape.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch(e){}
+
+    const bodyTextShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, left, top + headerHeight, cardW, cardH - headerHeight);
+    setStyledText(bodyTextShape, descText, { size: CONFIG.FONTS.sizes.body, align: SlidesApp.ParagraphAlignment.CENTER });
+    try { bodyTextShape.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch(e){}
+  }
+
+  drawBottomBarAndFooter(slide, layout, pageNum);
+}
+
+// bulletCards（箇条書きカード）
+function createBulletCardsSlide(slide, data, layout, pageNum) {
+  slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
+  drawStandardTitleHeader(slide, layout, 'contentSlide', data.title);
+  const dy = drawSubheadIfAny(slide, layout, 'contentSlide', data.subhead);
+
+  const area = offsetRect(layout.getRect('contentSlide.body'), 0, dy);
+  const items = Array.isArray(data.items) ? data.items : [];
+  const totalItems = Math.min(items.length, 3);
+  if (totalItems === 0) {
+    drawBottomBarAndFooter(slide, layout, pageNum);
+    return;
+  }
+
+  const gap = layout.pxToPt(16);
+  const minCardHeight = layout.pxToPt(90);
+  const maxCardHeight = layout.pxToPt(120);
+  const idealCardHeight = (area.height - (totalItems - 1) * gap) / totalItems;
+  const cardHeight = Math.max(minCardHeight, Math.min(maxCardHeight, idealCardHeight));
+  
+  let currentY = area.top;
+
+  for (let i = 0; i < totalItems; i++) {
+    const item = items[i];
+    const card = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, area.left, currentY, area.width, cardHeight);
+    card.getFill().setSolidFill(CONFIG.COLORS.background_gray);
+    card.getBorder().getLineFill().setSolidFill(CONFIG.COLORS.card_border);
+    card.getBorder().setWeight(1);
+
+    const padding = layout.pxToPt(20);
+    const title = String(item.title || '');
+    const desc = String(item.desc || '');
+    
+    if (title.length > 0 && desc.length > 0) {
+      const titleShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, area.left + padding, currentY + layout.pxToPt(12), area.width - padding * 2, layout.pxToPt(18));
+      titleShape.getFill().setTransparent();
+      titleShape.getBorder().setTransparent();
+      setStyledText(titleShape, title, { size: 14, bold: true });
+      
+      const descShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, area.left + padding, currentY + layout.pxToPt(38), area.width - padding * 2, cardHeight - layout.pxToPt(48));
+      descShape.getFill().setTransparent();
+      descShape.getBorder().setTransparent();
+      setStyledText(descShape, desc, { size: 14, color: CONFIG.COLORS.text_primary });
+    } else if (title.length > 0) {
+      const titleShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, area.left + padding, currentY, area.width - padding * 2, cardHeight);
+      titleShape.getFill().setTransparent();
+      titleShape.getBorder().setTransparent();
+      titleShape.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+      setStyledText(titleShape, title, { size: 14, bold: true });
+    } else {
+      const descShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, area.left + padding, currentY, area.width - padding * 2, cardHeight);
+      descShape.getFill().setTransparent();
+      descShape.getBorder().setTransparent();
+      descShape.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE);
+      setStyledText(descShape, desc, { size: 14, color: CONFIG.COLORS.text_primary });
+    }
+
+    currentY += cardHeight + gap;
+  }
+
+  drawBottomBarAndFooter(slide, layout, pageNum);
+}
+
+// closing（結び）
+function createClosingSlide(slide, data, layout) {
+slide.getBackground().setSolidFill(CONFIG.COLORS.background_white);
+try {
+  const image = slide.insertImage(CONFIG.LOGOS.closing);
+  const imgW_pt = layout.pxToPt(450) * layout.scaleX;
+  const aspect = image.getHeight() / image.getWidth();
+  image.setWidth(imgW_pt).setHeight(imgW_pt * aspect);
+  image.setLeft((layout.pageW_pt - imgW_pt) / 2).setTop((layout.pageH_pt - (imgW_pt * aspect)) / 2);
+} catch (e) {
+  // 画像挿入に失敗した場合はスキップして他の要素を描画
+}
+}
+
+
+// --- 8. ユーティリティ関数群 ---
+function createLayoutManager(pageW_pt, pageH_pt) {
+const pxToPt = (px) => px * 0.75;
+const baseW_pt = pxToPt(CONFIG.BASE_PX.W);
+const baseH_pt = pxToPt(CONFIG.BASE_PX.H);
+const scaleX = pageW_pt / baseW_pt;
+const scaleY = pageH_pt / baseH_pt;
+
+const getPositionFromPath = (path) => path.split('.').reduce((obj, key) => obj[key], CONFIG.POS_PX);
+return {
+scaleX, scaleY, pageW_pt, pageH_pt, pxToPt,
+getRect: (spec) => {
+const pos = typeof spec === 'string' ? getPositionFromPath(spec) : spec;
+let left_px = pos.left;
+if (pos.right !== undefined && pos.left === undefined) {
+left_px = CONFIG.BASE_PX.W - pos.right - pos.width;
+}
+return {
+left:   left_px !== undefined ? pxToPt(left_px) * scaleX : undefined,
+top:    pos.top !== undefined ? pxToPt(pos.top) * scaleY : undefined,
+width:  pos.width !== undefined ? pxToPt(pos.width) * scaleX : undefined,
+height: pos.height !== undefined ? pxToPt(pos.height) * scaleY : undefined,
+};
+}
+};
+}
+
+function offsetRect(rect, dx, dy) {
+return { left: rect.left + (dx || 0), top: rect.top + (dy || 0), width: rect.width, height: rect.height };
+}
+
+function drawStandardTitleHeader(slide, layout, key, title) {
+const logoRect = layout.getRect(`${key}.headerLogo`);
+try {
+  const logo = slide.insertImage(CONFIG.LOGOS.header);
+  const asp = logo.getHeight() / logo.getWidth();
+  logo.setLeft(logoRect.left).setTop(logoRect.top).setWidth(logoRect.width).setHeight(logoRect.width * asp);
+} catch (e) {
+  // 画像挿入に失敗した場合はスキップして他の要素を描画
+}
+
+const titleRect = layout.getRect(`${key}.title`);
+const titleShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, titleRect.left, titleRect.top, titleRect.width, titleRect.height);
+setStyledText(titleShape, title || '', { size: CONFIG.FONTS.sizes.contentTitle, bold: true });
+
+const uRect = layout.getRect(`${key}.titleUnderline`);
+const u = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, uRect.left, uRect.top, uRect.width, uRect.height);
+u.getFill().setSolidFill(CONFIG.COLORS.primary_color);
+u.getBorder().setTransparent();
+}
+
+function drawSubheadIfAny(slide, layout, key, subhead) {
+if (!subhead) return 0;
+const rect = layout.getRect(`${key}.subhead`);
+const box = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, rect.left, rect.top, rect.width, rect.height);
+setStyledText(box, subhead, { size: CONFIG.FONTS.sizes.subhead, color: CONFIG.COLORS.text_primary });
+return layout.pxToPt(36);
+}
+
+function drawBottomBar(slide, layout) {
+const barRect = layout.getRect('bottomBar');
+const bar = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, barRect.left, barRect.top, barRect.width, barRect.height);
+bar.getFill().setSolidFill(CONFIG.COLORS.primary_color);
+bar.getBorder().setTransparent();
+}
+
+function drawBottomBarAndFooter(slide, layout, pageNum) {
+drawBottomBar(slide, layout);
+addCucFooter(slide, layout, pageNum);
+}
+
+function addCucFooter(slide, layout, pageNum) {
+const leftRect = layout.getRect('footer.leftText');
+const leftShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, leftRect.left, leftRect.top, leftRect.width, leftRect.height);
+leftShape.getText().setText(CONFIG.FOOTER_TEXT);
+applyTextStyle(leftShape.getText(), { size: CONFIG.FONTS.sizes.footer, color: CONFIG.COLORS.text_primary });
+
+if (pageNum > 0) {
+const rightRect = layout.getRect('footer.rightPage');
+const rightShape = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, rightRect.left, rightRect.top, rightRect.width, rightRect.height);
+rightShape.getText().setText(String(pageNum));
+applyTextStyle(rightShape.getText(), { size: CONFIG.FONTS.sizes.footer, color: CONFIG.COLORS.primary_color, align: SlidesApp.ParagraphAlignment.END });
+}
+}
+
+function applyTextStyle(textRange, opt) {
+const style = textRange.getTextStyle();
+style.setFontFamily(CONFIG.FONTS.family);
+style.setForegroundColor(opt.color || CONFIG.COLORS.text_primary);
+style.setFontSize(opt.size || CONFIG.FONTS.sizes.body);
+style.setBold(opt.bold || false);
+if (opt.align) {
+try { textRange.getParagraphs().forEach(p => p.getRange().getParagraphStyle().setParagraphAlignment(opt.align)); } catch (e) {}
+}
+}
+
+function setStyledText(shapeOrCell, rawText, baseOpt) {
+const parsed = parseInlineStyles(rawText || '');
+const tr = shapeOrCell.getText();
+tr.setText(parsed.output);
+applyTextStyle(tr, baseOpt || {});
+applyStyleRanges(tr, parsed.ranges);
+}
+
+function setBulletsWithInlineStyles(shape, points) {
+const joiner = '\n\n';
+let combined = '';
+const ranges = [];
+
+(points || []).forEach((pt, idx) => {
+const parsed = parseInlineStyles(String(pt || ''));
+const bullet = '• ' + parsed.output;
+if (idx > 0) combined += joiner;
+const start = combined.length;
+combined += bullet;
+
+parsed.ranges.forEach(r => {
+  ranges.push({ start: start + 2 + r.start, end: start + 2 + r.end, bold: r.bold, color: r.color });
+});
+});
+
+const tr = shape.getText();
+tr.setText(combined || '• —');
+applyTextStyle(tr, { size: CONFIG.FONTS.sizes.body });
+
+try {
+tr.getParagraphs().forEach(p => {
+const ps = p.getRange().getParagraphStyle();
+ps.setLineSpacing(100);
+ps.setSpaceBelow(6);
+});
+} catch (e) {}
+
+applyStyleRanges(tr, ranges);
+}
+
+function parseInlineStyles(s) {
+const ranges = [];
+let out = '';
+for (let i = 0; i < s.length; ) {
+if (s[i] === '[' && s[i+1] === '[') {
+const close = s.indexOf(']]', i + 2);
+if (close !== -1) {
+const content = s.substring(i + 2, close);
+const start = out.length;
+out += content;
+const end = out.length;
+ranges.push({ start, end, bold: true, color: CONFIG.COLORS.primary_color });
+i = close + 2; continue;
+}
+}
+if (s[i] === '*' && s[i+1] === '*') {
+const close = s.indexOf('**', i + 2);
+if (close !== -1) {
+const content = s.substring(i + 2, close);
+const start = out.length;
+out += content;
+const end = out.length;
+ranges.push({ start, end, bold: true });
+i = close + 2; continue;
+}
+}
+out += s[i]; i++;
+}
+return { output: out, ranges };
+}
+
+function applyStyleRanges(textRange, ranges) {
+ranges.forEach(r => {
+try {
+const sub = textRange.getRange(r.start, r.end);
+if (!sub) return;
+const st = sub.getTextStyle();
+if (r.bold) st.setBold(true);
+if (r.color) st.setForegroundColor(r.color);
+} catch (e) {}
+});
+}
+
+function normalizeImages(arr) {
+return (arr || []).map(v => {
+if (typeof v === 'string') return { url: v };
+if (v && typeof v.url === 'string') return { url: v.url, caption: v.caption || '' };
+return null;
+}).filter(Boolean).slice(0, 6);
+}
+
+function renderImagesInArea(slide, layout, area, images) {
+if (!images || images.length === 0) return;
+const n = Math.min(6, images.length);
+let cols = 1, rows = 1;
+if (n === 1) { cols = 1; rows = 1; }
+else if (n === 2) { cols = 2; rows = 1; }
+else if (n <= 4) { cols = 2; rows = 2; }
+else { cols = 3; rows = 2; }
+
+const gap = layout.pxToPt(10);
+const cellW = (area.width - gap * (cols - 1)) / cols;
+const cellH = (area.height - gap * (rows - 1)) / rows;
+
+for (let i = 0; i < n; i++) {
+const r = Math.floor(i / cols), c = i % cols;
+const left = area.left + c * (cellW + gap);
+const top  = area.top  + r * (cellH + gap);
+try {
+const img = slide.insertImage(images[i].url);
+const scale = Math.min(cellW / img.getWidth(), cellH / img.getHeight());
+const w = img.getWidth() * scale;
+const h = img.getHeight() * scale;
+img.setWidth(w).setHeight(h);
+img.setLeft(left + (cellW - w) / 2).setTop(top + (cellH - h) / 2);
+} catch(e) {}
+}
+}
+
+function isAgendaTitle(title) {
+const t = String(title || '').toLowerCase();
+return /(agenda|アジェンダ|目次|本日お伝えすること)/.test(t);
+}
+
+function buildAgendaFromSlideData() {
+const pts = [];
+for (const d of slideData) {
+if (d && d.type === 'section' && typeof d.title === 'string' && d.title.trim()) pts.push(d.title.trim());
+}
+if (pts.length > 0) return pts.slice(0, 5);
+const alt = [];
+for (const d of slideData) {
+if (d && d.type === 'content' && typeof d.title === 'string' && d.title.trim()) alt.push(d.title.trim());
+}
+return alt.slice(0, 5);
+}
+
+function drawNumberedItems(slide, layout, area, items) {
+const n = Math.max(1, items.length);
+const topPadding = layout.pxToPt(30);
+const bottomPadding = layout.pxToPt(10);
+const drawableHeight = area.height - topPadding - bottomPadding;
+const gapY = drawableHeight / Math.max(1, n - 1);
+const cx = area.left + layout.pxToPt(44);
+const top0 = area.top + topPadding;
+
+for (let i = 0; i < n; i++) {
+const cy = top0 + gapY * i;
+const sz = layout.pxToPt(28);
+const numBox = slide.insertShape(SlidesApp.ShapeType.RECTANGLE, cx - sz/2, cy - sz/2, sz, sz);
+numBox.getFill().setSolidFill(CONFIG.COLORS.primary_color);
+numBox.getBorder().setTransparent();
+const num = numBox.getText(); num.setText(String(i + 1));
+applyTextStyle(num, { size: 12, bold: true, color: CONFIG.COLORS.background_white, align: SlidesApp.ParagraphAlignment.CENTER });
+
+// 元の箇条書きテキストから先頭の数字を除去
+let cleanText = String(items[i] || '');
+cleanText = cleanText.replace(/^\s*\d+[\.\s]*/, '');
+
+const txt = slide.insertShape(SlidesApp.ShapeType.TEXT_BOX, cx + layout.pxToPt(28), cy - layout.pxToPt(16), area.width - layout.pxToPt(70), layout.pxToPt(32));
+setStyledText(txt, cleanText, { size: CONFIG.FONTS.sizes.processStep });
+try { txt.setContentAlignment(SlidesApp.ContentAlignment.MIDDLE); } catch(e){}
+}
+}
